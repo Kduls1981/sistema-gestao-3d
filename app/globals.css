@@ -1,26 +1,122 @@
 @import "tailwindcss";
 
+/* Configuração do seletor dark mode manual para Tailwind v4 */
+@variant dark (&:where(.dark, .dark *));
+
 :root {
-  --background: #ffffff;
+  --background: #f4f5f7;
   --foreground: #171717;
+}
+
+.dark {
+  --background: #121214; /* Cinza grafite neutro e elegante (sem tom azulado) */
+  --foreground: #ededed;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --font-sans: var(--font-geist-sans), 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: var(--font-geist-mono), monospace;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
+  letter-spacing: -0.01em;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* ==========================================
+   CUSTOMIZAÇÃO GLOBAL PARA CAIXAS DE SELEÇÃO (<select>)
+   ========================================== */
+select {
+  background-image: none !important;
+}
+
+select option {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  padding: 10px;
+}
+
+.dark select option {
+  background-color: #0f172a !important;
+  color: #ffffff !important;
+}
+
+/* ==========================================
+    CUSTOMIZAÇÃO PROFISSIONAL DO REACT-CALENDAR (FINEXY THEME)
+    ========================================== */
+.react-calendar {
+  width: 100% !important;
+  max-width: 320px !important;
+  background-color: transparent !important;
+  background: transparent !important;
+  border: none !important;
+  font-family: inherit !important;
+}
+
+.react-calendar__navigation {
+  display: flex;
+  margin-bottom: 12px;
+}
+
+.react-calendar__navigation button {
+  color: inherit !important;
+  min-width: 36px;
+  background: none;
+  font-size: 13px;
+  font-weight: 700;
+  border-radius: 8px;
+  transition: background-color 0.2s;
+}
+
+.react-calendar__navigation button:hover {
+  background-color: rgba(249, 115, 22, 0.15);
+}
+
+.react-calendar__month-view__weekdays {
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: #f97316;
+  text-decoration: none;
+  margin-bottom: 4px;
+}
+
+.react-calendar__month-view__weekdays__weekday abbr {
+  text-decoration: none;
+}
+
+.react-calendar__tile {
+  color: inherit !important;
+  padding: 10px 6px !important;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  background: transparent !important;
+  transition: all 0.2s ease;
+}
+
+.react-calendar__tile:hover {
+  background-color: rgba(249, 115, 22, 0.15) !important;
+}
+
+.react-calendar__tile--active {
+  background-color: #f97316 !important;
+  color: white !important;
+  font-weight: 800 !important;
+  box-shadow: 0 4px 12px rgba(249, 115, 22, 0.3);
+}
+
+.react-calendar__tile--now {
+  background: rgba(249, 115, 22, 0.15);
+  color: #ea580c;
+  font-weight: 800;
+}
+
+.dark .react-calendar__tile--now {
+  color: #fb923c;
 }
