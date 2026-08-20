@@ -151,6 +151,20 @@ export default function VendasPage() {
         dinheiro: 'Dinheiro'
       }
 
+      console.log('Iniciando gravação automatizada da receita no financeiro para o pedido:', numeroPedidoGerado)
+      console.log('Dados da transação a serem inseridos:', {
+        date: yyyymmdd,
+        type: 'Receita',
+        category: 'Vendas',
+        description: `Venda ${numeroPedidoGerado} - ${cliente}`,
+        amount: valorTotalFinal,
+        status: 'Concluído',
+        payment_method: paymentMethodMap[formaPagamento] || 'Pix',
+        payment_status: 'paid',
+        payment_gateway_fee: 0,
+        due_date: yyyymmdd
+      })
+
       const { error: financialError } = await supabase
         .from('financial_transactions')
         .insert([{
@@ -163,11 +177,15 @@ export default function VendasPage() {
           payment_method: paymentMethodMap[formaPagamento] || 'Pix',
           payment_status: 'paid',
           payment_gateway_fee: 0,
-          due_date: yyyymmdd,
-          payment_date: yyyymmdd
+          due_date: yyyymmdd
         }])
 
-      if (financialError) throw financialError
+      if (financialError) {
+        console.error('Erro retornado pelo Supabase ao inserir transação financeira:', financialError)
+        throw financialError
+      } else {
+        console.log('Receita gravada com sucesso na tabela financial_transactions!')
+      }
 
       const novaVenda = {
         id: Date.now(),
