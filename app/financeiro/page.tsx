@@ -42,6 +42,10 @@ type Transaction = {
   description: string
   amount: number
   status?: string
+  payment_gateway_fee?: number
+  payment_method?: string
+  due_date?: string
+  payment_status?: 'pending' | 'paid' | 'cancelled'
 }
 
 type Product3D = {
@@ -104,6 +108,10 @@ export default function FinanceiroPage() {
   const [tAmount, setTAmount] = useState<number>(0)
   const [tQuantity, setTQuantity] = useState<number>(1)
   const [tStatus, setTStatus] = useState('Concluído')
+  const [tPaymentMethod, setTPaymentMethod] = useState('Pix')
+  const [tDueDate, setTDueDate] = useState('')
+  const [tPaymentStatus, setTPaymentsStatus] = useState<'pending' | 'paid' | 'cancelled'>('paid')
+  const [tPaymentGatewayFee, setTPaymentGatewayFee] = useState<number>(0)
   const [selectedProductModel, setSelectedProductModel] = useState('')
   const [loadingTrans, setLoadingTrans] = useState(false)
 
@@ -240,7 +248,11 @@ export default function FinanceiroPage() {
         category: tCategory || 'Geral',
         description: finalDescription,
         amount: tAmount,
-        status: tStatus
+        status: tPaymentStatus === 'paid' ? 'Concluído' : tPaymentStatus === 'cancelled' ? 'Cancelado' : 'Pendente',
+        payment_method: tPaymentMethod,
+        due_date: tDueDate || null,
+        payment_status: tPaymentStatus,
+        payment_gateway_fee: tPaymentGatewayFee || 0
       }])
 
       if (error) throw error
@@ -252,6 +264,10 @@ export default function FinanceiroPage() {
       setTAmount(0)
       setTQuantity(1)
       setTStatus('Concluído')
+      setTPaymentMethod('Pix')
+      setTDueDate('')
+      setTPaymentsStatus('paid')
+      setTPaymentGatewayFee(0)
       setSelectedProductModel('')
       setSucessoMsg('Transação registrada com sucesso!')
       fetchData()
@@ -694,6 +710,55 @@ export default function FinanceiroPage() {
                 className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 text-xs text-slate-900 dark:text-white outline-none focus:border-orange-500 font-bold"
               />
             </div>
+
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Método de Pagamento</label>
+              <select 
+                value={tPaymentMethod} 
+                onChange={(e) => setTPaymentMethod(e.target.value)}
+                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 text-xs text-slate-900 dark:text-white outline-none focus:border-orange-500 font-medium"
+              >
+                <option value="Pix">Pix</option>
+                <option value="Cartão de Crédito">Cartão de Crédito</option>
+                <option value="Boleto">Boleto</option>
+                <option value="Dinheiro">Dinheiro</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Data de Vencimento</label>
+              <input 
+                type="date" 
+                value={tDueDate} 
+                onChange={(e) => setTDueDate(e.target.value)} 
+                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 text-xs text-slate-900 dark:text-white outline-none focus:border-orange-500 font-medium"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Status de Pagamento</label>
+              <select 
+                value={tPaymentStatus} 
+                onChange={(e) => setTPaymentsStatus(e.target.value as 'pending' | 'paid' | 'cancelled')}
+                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 text-xs text-slate-900 dark:text-white outline-none focus:border-orange-500 font-medium"
+              >
+                <option value="paid">Pago</option>
+                <option value="pending">Pendente</option>
+                <option value="cancelled">Cancelado</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Taxa de Gateway (R$)</label>
+              <input 
+                type="number" 
+                step="0.01"
+                value={tPaymentGatewayFee || ''} 
+                onChange={(e) => setTPaymentGatewayFee(Number(e.target.value))} 
+                placeholder="Ex: 1.50"
+                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 text-xs text-slate-900 dark:text-white outline-none focus:border-orange-500 font-medium"
+              />
+            </div>
           </div>
 
           <div className="flex justify-end pt-2">
@@ -751,7 +816,10 @@ export default function FinanceiroPage() {
                   <th className="p-4">Tipo</th>
                   <th className="p-4">Descrição</th>
                   <th className="p-4">Categoria</th>
+                  <th className="p-4">Método</th>
+                  <th className="p-4">Vencimento</th>
                   <th className="p-4">Status</th>
+                  <th className="p-4">Taxa Gateway</th>
                   <th className="p-4">Valor</th>
                   <th className="p-4 pr-6 text-center">Ações</th>
                 </tr>
@@ -780,10 +848,21 @@ export default function FinanceiroPage() {
                       </td>
                       <td className="p-4 font-bold text-slate-900 dark:text-white">{tr.description}</td>
                       <td className="p-4 text-slate-500 dark:text-slate-400">{tr.category || 'Geral'}</td>
+                      <td className="p-4 text-slate-500 dark:text-slate-400 whitespace-nowrap">{tr.payment_method || '-'}</td>
+                      <td className="p-4 text-slate-500 dark:text-slate-400 whitespace-nowrap">{tr.due_date ? formatDateDisplay(tr.due_date) : '-'}</td>
                       <td className="p-4 whitespace-nowrap">
-                        <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
-                          {tr.status || 'Concluído'}
+                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
+                          tr.payment_status === 'paid' || tr.status === 'Concluído'
+                            ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
+                            : tr.payment_status === 'cancelled'
+                            ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20'
+                            : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
+                        }`}>
+                          {tr.payment_status === 'paid' || tr.status === 'Concluído' ? 'Pago' : tr.payment_status === 'cancelled' ? 'Cancelado' : 'Pendente'}
                         </span>
+                      </td>
+                      <td className="p-4 font-bold text-rose-500 dark:text-rose-400/80 whitespace-nowrap">
+                        {tr.payment_gateway_fee ? formatCurrency(tr.payment_gateway_fee) : '-'}
                       </td>
                       <td className={`p-4 font-extrabold whitespace-nowrap ${tr.type === 'Receita' ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
                         {formatCurrency(tr.amount)}
