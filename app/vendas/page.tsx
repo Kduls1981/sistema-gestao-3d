@@ -24,7 +24,44 @@ export default function VendasPage() {
 
   useEffect(() => {
     fetchProdutos()
+    fetchSales()
   }, [])
+
+  async function fetchSales() {
+    try {
+      console.log('Iniciando busca de vendas/pedidos na tabela public.sales...')
+      const { data, error } = await supabase
+        .from('sales')
+        .select('*')
+        .order('id', { ascending: false })
+
+      if (error) {
+        console.error('Erro detalhado retornado pelo Supabase ao buscar vendas (fetchSales):', error)
+        return
+      }
+
+      console.log('Retorno de busca de vendas com sucesso do Supabase:', data)
+      if (data && data.length > 0) {
+        const vendasMapeadas = data.map((v: any) => ({
+          id: v.id,
+          numeroPedido: v.numero_pedido || v.numeroPedido || '',
+          cliente: v.cliente || '',
+          produto: v.produto || '',
+          qtd: Number(v.qtd) || 0,
+          total: Number(v.total) || 0,
+          pagamento: v.pagamento || '',
+          status: v.status || '',
+          data: v.created_at ? new Date(v.created_at).toLocaleDateString('pt-BR') : (v.data || ''),
+          hora: v.created_at ? new Date(v.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : (v.hora || ''),
+          emProducao: typeof v.em_producao === 'boolean' ? v.em_producao : (v.emProducao || false),
+          filaIniciada: typeof v.fila_iniciada === 'boolean' ? v.fila_iniciada : (v.filaIniciada || false)
+        }))
+        setVendasRecentes(vendasMapeadas)
+      }
+    } catch (err: any) {
+      console.error('Exceção ao buscar vendas do Supabase:', err.message || err)
+    }
+  }
 
   async function fetchProdutos() {
     try {
@@ -187,8 +224,35 @@ export default function VendasPage() {
         console.log('Receita gravada com sucesso na tabela financial_transactions!')
       }
 
+      // Gravação automatizada do Pedido na tabela sales
+      console.log('Iniciando gravação do pedido na tabela sales do Supabase...', numeroPedidoGerado)
+      const dadosVendaInsert = {
+        numero_pedido: numeroPedidoGerado,
+        cliente: cliente,
+        produto: nomeProdutoHistorico,
+        qtd: qtdTotalItens,
+        total: valorTotalFinal,
+        pagamento: formaPagamento.toUpperCase(),
+        status: statusHistorico,
+        em_producao: temItensEmProducao,
+        fila_iniciada: !temItensEmProducao
+      }
+      console.log('Dados do pedido a serem inseridos em sales:', dadosVendaInsert)
+
+      const { data: insertSalesData, error: salesError } = await supabase
+        .from('sales')
+        .insert([dadosVendaInsert])
+        .select()
+
+      console.log('Retorno exato do Supabase (data) ao fazer INSERT na tabela sales:', insertSalesData)
+      if (salesError) {
+        console.error('Erro exato retornado pelo Supabase (error) ao fazer INSERT na tabela sales:', salesError)
+      } else {
+        console.log('Pedido gravado com sucesso na tabela sales do Supabase!')
+      }
+
       const novaVenda = {
-        id: Date.now(),
+        id: insertSalesData && insertSalesData[0]?.id ? insertSalesData[0].id : Date.now(),
         numeroPedido: numeroPedidoGerado,
         cliente,
         produto: nomeProdutoHistorico,
@@ -208,6 +272,7 @@ export default function VendasPage() {
       setDescontoPercentual(0)
       
       fetchProdutos()
+      fetchSales() // Invoca imediatamente para atualizar o estado local do React a partir do Supabase
       alert(`Pedido ${numeroPedidoGerado} finalizado com sucesso! Estoque atualizado e fila de produção incrementada.`)
 
     } catch (err: any) {
