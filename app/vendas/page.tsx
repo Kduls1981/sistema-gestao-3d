@@ -142,6 +142,33 @@ export default function VendasPage() {
       const dataFormatada = agora.toLocaleDateString('pt-BR')
       const horaFormatada = agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
 
+      // Gravação automatizada da Receita no Financeiro
+      const yyyymmdd = `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, '0')}-${String(agora.getDate()).padStart(2, '0')}`
+      const paymentMethodMap: Record<string, string> = {
+        pix: 'Pix',
+        cartao: 'Cartão de Crédito',
+        boleto: 'Boleto',
+        dinheiro: 'Dinheiro'
+      }
+
+      const { error: financialError } = await supabase
+        .from('financial_transactions')
+        .insert([{
+          date: yyyymmdd,
+          type: 'Receita',
+          category: 'Vendas',
+          description: `Venda ${numeroPedidoGerado} - ${cliente}`,
+          amount: valorTotalFinal,
+          status: 'Concluído',
+          payment_method: paymentMethodMap[formaPagamento] || 'Pix',
+          payment_status: 'paid',
+          payment_gateway_fee: 0,
+          due_date: yyyymmdd,
+          payment_date: yyyymmdd
+        }])
+
+      if (financialError) throw financialError
+
       const novaVenda = {
         id: Date.now(),
         numeroPedido: numeroPedidoGerado,
