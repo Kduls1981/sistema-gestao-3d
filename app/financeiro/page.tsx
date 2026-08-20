@@ -21,7 +21,12 @@ import {
   Settings, 
   FileText,
   CreditCard,
-  AlertCircle
+  AlertCircle,
+  Eye,
+  X,
+  Percent,
+  Clock,
+  Gauge
 } from 'lucide-react'
 
 type FixedCost = {
@@ -46,6 +51,8 @@ type Transaction = {
   payment_method?: string
   due_date?: string
   payment_status?: 'pending' | 'paid' | 'cancelled'
+  sale_id?: string
+  order_id?: string
 }
 
 type Product3D = {
@@ -84,6 +91,10 @@ const CATEGORIAS_CUSTO_FIXO = [
 
 export default function FinanceiroPage() {
   const [fixedCosts, setFixedCosts] = useState<FixedCost[]>([])
+  // Estado para o Modal de Detalhes da Venda
+  const [selectedSaleDetail, setSelectedSaleDetail] = useState<any | null>(null)
+  const [loadingSaleDetail, setLoadingSaleDetail] = useState(false)
+  const [showSaleModal, setShowSaleModal] = useState(false)
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [products3D, setProducts3D] = useState<Product3D[]>([])
   const [fetching, setFetching] = useState(true)
@@ -152,6 +163,101 @@ export default function FinanceiroPage() {
   useEffect(() => {
     fetchData()
   }, [])
+
+  const handleViewSaleDetail = async (tr: Transaction) => {
+    try {
+      setLoadingSaleDetail(true)
+      setShowSaleModal(true)
+      setSelectedSaleDetail(null)
+
+      let saleId = tr.sale_id || tr.order_id || ''
+      let orderNumber = ''
+
+      const matchPed = tr.description.match(/(PED-\d{6}-\d{3})/i)
+      if (matchPed && matchPed[1]) {
+        orderNumber = matchPed[1]
+      }
+
+      let saleData: any = null
+
+      if (saleId) {
+        const { data, error } = await supabase.from('sales').select('*').eq('id', saleId).single()
+        if (data && !error) saleData = data
+      }
+
+      if (!saleData && orderNumber) {
+        const { data, error } = await supabase.from('sales').select('*').eq('numero_pedido', orderNumber).single()
+        if (data && !error) {
+          saleData = data
+        } else {
+          const { data: data2 } = await supabase.from('sales').select('*').eq('numero_pedido', orderNumber).single()
+          if (data2) saleData = data2
+        }
+      }
+
+      if (!saleData) {
+        const itemMock = tr.description.replace(/^Venda\s+PED-\d{6}-\d{3}\s*-\s*/i, '').replace(/^Venda:\s*/i, '').replace(/\s*\(Qtd:\s*\d+\)/i, '')
+        const qtyMock = tr.description.match(/\(Qtd:\s*(\d+)\)/i)?.[1] ? Number(tr.description.match(/\(Qtd:\s*(\d+)\)/i)?.[1]) : 1
+        const clienteMock = tr.description.split(' - ')?.[1] || 'Cliente Geral'
+
+        saleData = {
+          id: tr.id,
+          numero_pedido: orderNumber || `PED-MOCK-001`,
+          cliente: clienteMock,
+          produto: itemMock || 'Modelo 3D Geral',
+          qtd: qtyMock,
+          total: tr.amount,
+          pagamento: tr.payment_method || 'PIX',
+          status: 'Concluído',
+          created_at: tr.date,
+          is_mock: true
+        }
+      }
+
+      let weightG = 0
+      let printTimeHours = 0
+
+      const prodName = saleData.produto.toLowerCase()
+      const matchedProd = products3D.find(p => prodName.includes(p.name.toLowerCase()) || p.name.toLowerCase().includes(prodName))
+      
+      if (matchedProd) {
+        const { data: fullProd } = await supabase.from('products_3d').select('weight_g, print_time_hours').eq('id', matchedProd.id).single()
+        if (fullProd) {
+          weightG = (fullProd.weight_g || 0) * (saleData.qtd || 1)
+          printTimeHours = (fullProd.print_time_hours || 0) * (saleData.qtd || 1)
+        }
+      }
+
+      if (weightG === 0) {
+        weightG = (saleData.qtd || 1) * 45 
+      }
+      if (printTimeHours === 0) {
+        printTimeHours = (saleData.qtd || 1) * 3
+      }
+
+      const gatewayFee = tr.payment_gateway_fee || 0
+      const taxes = tr.amount * 0.06
+
+      const materialCost = weightG * 0.09 
+      const machineCost = printTimeHours * 1.20 
+      const netProfit = tr.amount - gatewayFee - taxes - materialCost - machineCost
+
+      setSelectedSaleDetail({
+        ...saleData,
+        weight_g: weightG,
+        print_time_hours: printTimeHours,
+        gateway_fee: gatewayFee,
+        taxes: taxes,
+        net_profit: netProfit,
+        material_cost: materialCost,
+        machine_cost: machineCost
+      })
+    } catch (err: any) {
+      console.error('Erro ao processar detalhes do pedido:', err)
+    } finally {
+      setLoadingSaleDetail(false)
+    }
+  }
 
   const handleSelectProductModel = (productId: string) => {
     setSelectedProductModel(productId)
@@ -867,7 +973,17 @@ export default function FinanceiroPage() {
                       <td className={`p-4 font-extrabold whitespace-nowrap ${tr.type === 'Receita' ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
                         {formatCurrency(tr.amount)}
                       </td>
-                      <td className="p-4 pr-6 text-center whitespace-nowrap">
+                      <td className="p-4 pr-6 text-center whitespace-nowrap flex items-center justify-center gap-1.5">
+                        {(tr.type === 'Receita' && (tr.sale_id || tr.order_id || tr.category === 'Vendas' || /PED-\d{6}-\d{3}/i.test(tr.description))) && (
+                          <button 
+                            type="button"
+                            onClick={() => handleViewSaleDetail(tr)}
+                            title="Visualizar Detalhes do Pedido"
+                            className="text-slate-400 hover:text-orange-500 transition p-2 rounded-xl hover:bg-orange-500/10 inline-flex items-center justify-center cursor-pointer"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                        )}
                         <button 
                           onClick={() => handleDeleteTransaction(tr.id)}
                           title="Excluir Transação"
@@ -884,6 +1000,163 @@ export default function FinanceiroPage() {
           </div>
         </div>
       </div>
+
+      {/* MODAL DE DETALHES DO PEDIDO / VENDA (Tailwind Dark Theme) */}
+      <AnimatePresence>
+        {showSaleModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            {/* Backdrop com fechamento ao clicar fora */}
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowSaleModal(false)}
+              className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm"
+            />
+
+            {/* Container do Modal */}
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl overflow-hidden text-slate-100 max-h-[90vh] flex flex-col"
+            >
+              {/* Header */}
+              <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-950/50">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="px-2.5 py-0.5 rounded-full bg-orange-500/10 border border-orange-500/20 text-orange-400 text-[10px] font-black uppercase tracking-wider">
+                      Resumo da Venda
+                    </span>
+                    {selectedSaleDetail?.is_mock && (
+                      <span className="px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-400 text-[10px] font-black uppercase tracking-wider">
+                        Detalhes Calculados
+                      </span>
+                    )}
+                  </div>
+                  <h3 className="text-lg font-extrabold text-white flex items-center gap-2">
+                    <Package className="w-5 h-5 text-orange-500" />
+                    {loadingSaleDetail ? 'Carregando detalhes...' : selectedSaleDetail?.numero_pedido}
+                  </h3>
+                </div>
+                <button 
+                  onClick={() => setShowSaleModal(false)}
+                  className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Corpo */}
+              <div className="p-6 overflow-y-auto space-y-6">
+                {loadingSaleDetail ? (
+                  <div className="py-12 flex flex-col items-center justify-center gap-3">
+                    <div className="w-8 h-8 rounded-full border-4 border-orange-500/30 border-t-orange-500 animate-spin"></div>
+                    <span className="text-xs text-slate-400 font-bold">Buscando dados no Supabase...</span>
+                  </div>
+                ) : selectedSaleDetail ? (
+                  <>
+                    {/* Informações Gerais */}
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="bg-slate-950/40 p-4 rounded-2xl border border-slate-800/80">
+                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Cliente</span>
+                        <span className="text-sm font-black text-white">{selectedSaleDetail.cliente}</span>
+                      </div>
+                      <div className="bg-slate-950/40 p-4 rounded-2xl border border-slate-800/80">
+                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Método de Pagamento</span>
+                        <span className="text-sm font-black text-orange-400 uppercase">{selectedSaleDetail.pagamento || 'PIX'}</span>
+                      </div>
+                    </div>
+
+                    {/* Itens do Pedido */}
+                    <div className="bg-slate-950/40 p-5 rounded-2xl border border-slate-800/80 space-y-3">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Produtos Impressos</span>
+                      <div className="flex justify-between items-center py-2 border-b border-slate-800/50">
+                        <span className="text-xs font-bold text-slate-200">{selectedSaleDetail.produto}</span>
+                        <span className="text-xs font-black text-white bg-slate-800 px-2.5 py-1 rounded-lg">Qtd: {selectedSaleDetail.qtd}</span>
+                      </div>
+                    </div>
+
+                    {/* Cards Técnicos de Impressão */}
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="bg-slate-950/20 p-4 rounded-2xl border border-slate-800/50 flex items-center gap-3">
+                        <div className="p-3 rounded-xl bg-blue-500/10 text-blue-400">
+                          <Gauge className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Peso Total Estimado</span>
+                          <span className="text-sm font-black text-white">{selectedSaleDetail.weight_g.toFixed(0)}g</span>
+                        </div>
+                      </div>
+
+                      <div className="bg-slate-950/20 p-4 rounded-2xl border border-slate-800/50 flex items-center gap-3">
+                        <div className="p-3 rounded-xl bg-violet-500/10 text-violet-400">
+                          <Clock className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Tempo de Máquina</span>
+                          <span className="text-sm font-black text-white">{selectedSaleDetail.print_time_hours.toFixed(1)}h</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Resumo Financeiro */}
+                    <div className="bg-slate-950/60 p-5 rounded-2xl border border-slate-800 space-y-3">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Resumo Financeiro & Margens</span>
+                      
+                      <div className="space-y-2 text-xs">
+                        <div className="flex justify-between text-slate-400">
+                          <span>Faturamento Bruto</span>
+                          <span className="font-bold text-white">{formatCurrency(selectedSaleDetail.total)}</span>
+                        </div>
+                        
+                        <div className="flex justify-between text-slate-400">
+                          <span>Taxa de Gateway / Maquininha</span>
+                          <span className="font-bold text-rose-500">-{formatCurrency(selectedSaleDetail.gateway_fee)}</span>
+                        </div>
+
+                        <div className="flex justify-between text-slate-400">
+                          <span>Impostos Estimados (6% Simples)</span>
+                          <span className="font-bold text-rose-500">-{formatCurrency(selectedSaleDetail.taxes)}</span>
+                        </div>
+
+                        <div className="flex justify-between text-slate-400 border-t border-slate-800 pt-2">
+                          <span>Custo de Material Estimado</span>
+                          <span className="font-bold text-amber-500">-{formatCurrency(selectedSaleDetail.material_cost)}</span>
+                        </div>
+
+                        <div className="flex justify-between text-slate-400">
+                          <span>Depreciação & Energia Estimada</span>
+                          <span className="font-bold text-amber-500">-{formatCurrency(selectedSaleDetail.machine_cost)}</span>
+                        </div>
+
+                        <div className="flex justify-between text-sm font-black text-white border-t border-slate-800 pt-3">
+                          <span className="flex items-center gap-1.5">
+                            <Percent className="w-4 h-4 text-emerald-500" /> Lucro Líquido Real
+                          </span>
+                          <span className="text-emerald-400">{formatCurrency(selectedSaleDetail.net_profit)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="py-12 text-center text-xs text-slate-500">Não foi possível carregar os detalhes desta venda.</div>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="p-4 border-t border-slate-800 bg-slate-950/30 flex justify-end">
+                <button 
+                  onClick={() => setShowSaleModal(false)}
+                  className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold transition cursor-pointer"
+                >
+                  Fechar Detalhes
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
     </motion.div>
   )
