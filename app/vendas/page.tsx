@@ -16,11 +16,7 @@ export default function VendasPage() {
   const [loadingProdutos, setLoadingProdutos] = useState(true)
   const [salvandoVenda, setSalvandoVenda] = useState(false)
 
-  const [vendasRecentes, setVendasRecentes] = useState([
-    { id: 1, numeroPedido: 'PED-202608-003', cliente: 'Mariana Costa', produto: 'Boneco crochê pokemon (+2 itens)', qtd: 40, total: 1170.00, pagamento: 'Boleto', status: 'Misto (3 modelos)', data: '19/08/2026', hora: '18:15', emProducao: true, filaIniciada: true },
-    { id: 2, numeroPedido: 'PED-202608-002', cliente: 'Carlos Silva', produto: 'Miniatura Dragão Articulado', qtd: 2, total: 300.00, pagamento: 'Pix', status: 'Parcial (1 Pronta / 1 Prod)', data: '19/08/2026', hora: '14:30', emProducao: true, filaIniciada: false },
-    { id: 3, numeroPedido: 'PED-202608-001', cliente: 'Ana Souza', produto: 'Suporte Headset 3D', qtd: 2, total: 90.00, pagamento: 'Pix', status: 'Concluído (Pronta Entrega)', data: '19/08/2026', hora: '10:00', emProducao: false, filaIniciada: true },
-  ])
+  const [vendasRecentes, setVendasRecentes] = useState<any[]>([])
 
   useEffect(() => {
     fetchProdutos()
@@ -29,22 +25,20 @@ export default function VendasPage() {
 
   async function fetchSales() {
     try {
-      console.log('Iniciando busca de vendas/pedidos na tabela public.sales...')
       const { data, error } = await supabase
         .from('sales')
         .select('*')
         .order('id', { ascending: false })
 
       if (error) {
-        console.error('Erro detalhado retornado pelo Supabase ao buscar vendas (fetchSales):', error)
+        console.warn('Tabela sales não encontrada ou sem permissão RLS. Mantendo estado atual.')
         return
       }
 
-      console.log('Retorno de busca de vendas com sucesso do Supabase:', data)
       if (data && data.length > 0) {
         const vendasMapeadas = data.map((v: any) => ({
           id: v.id,
-          numeroPedido: v.numero_pedido || v.numeroPedido || '',
+          numeroPedido: v.numero_pedido || v.numeroPedido || `PED-${v.id}`,
           cliente: v.cliente || '',
           produto: v.produto || '',
           qtd: Number(v.qtd) || 0,
@@ -59,7 +53,7 @@ export default function VendasPage() {
         setVendasRecentes(vendasMapeadas)
       }
     } catch (err: any) {
-      console.error('Exceção ao buscar vendas do Supabase:', err.message || err)
+      console.warn('Exceção ao buscar vendas:', err.message || err)
     }
   }
 
@@ -72,18 +66,31 @@ export default function VendasPage() {
         .order('name', { ascending: true })
 
       if (error) throw error
-      if (data) {
-        setProdutosCatalogo(data)
-      }
+      if (data) setProdutosCatalogo(data)
     } catch (err) {
-      console.error('Erro ao carregar produtos do estoque:', err)
+      console.error('Erro ao carregar produtos:', err)
     } finally {
       setLoadingProdutos(false)
     }
   }
 
+  const handleDeletarVenda = async (id: number, numeroPedido: string) => {
+    if (!confirm(`Tem certeza que deseja apagar o registro da venda ${numeroPedido}?`)) return
+
+    try {
+      await supabase.from('sales').delete().eq('id', id)
+      if (numeroPedido) {
+        await supabase.from('financial_transactions').delete().ilike('description', `%${numeroPedido}%`)
+      }
+    } catch (err) {
+      console.warn('Erro ao deletar do Supabase:', err)
+    } finally {
+      setVendasRecentes(prev => prev.filter(v => v.id !== id))
+      alert(`Venda ${numeroPedido} removida!`)
+    }
+  }
+
   const produtoAtual = produtosCatalogo.find((p) => String(p.id) === produtoId)
-  
   const estoqueProntoDisponivel = produtoAtual ? Number(produtoAtual.stock_ready || 0) : 0
   const qtdEstoqueUtilizada = Math.min(quantidade, estoqueProntoDisponivel)
   const qtdIndoParaProducao = Math.max(0, quantidade - estoqueProntoDisponivel)
@@ -131,7 +138,6 @@ export default function VendasPage() {
 
     try {
       setSalvandoVenda(true)
-
       let temItensEmProducao = false
 
       for (const item of itensPedido) {
@@ -141,68 +147,89 @@ export default function VendasPage() {
         const estoqueAtual = Number(prodOriginal.stock_ready || 0)
         const filaAtual = Number(prodOriginal.production_queue || 0)
 
-        if (item.qtdIndoParaProducao > 0) {
-          temItensEmProducao = true
-        }
+        if (item.qtdIndoParaProducao > 0) temItensEmProducao = true
 
-        const novoEstoque = Math.max(0, estoqueAtual - item.qtdEstoqueUtilizada)
-        const novaFila = filaAtual + item.qtdIndoParaProducao
-
-        const { error: updateError } = await supabase
+        await supabase
           .from('products_3d')
           .update({
-            stock_ready: novoEstoque,
-            production_queue: novaFila
+            stock_ready: Math.max(0, estoqueAtual - item.qtdEstoqueUtilizada),
+            production_queue: filaAtual + item.qtdIndoParaProducao
           })
           .eq('id', item.produtoId)
-
-        if (updateError) throw updateError
       }
 
-      let nomeProdutoHistorico = ''
-      let statusHistorico = ''
-
-      if (itensPedido.length === 1) {
-        nomeProdutoHistorico = itensPedido[0].nomeProduto
-        statusHistorico = itensPedido[0].statusItem
-      } else {
-        nomeProdutoHistorico = `${itensPedido[0].nomeProduto} (+${itensPedido.length - 1} itens)`
-        statusHistorico = `Misto (${itensPedido.length} modelos)`
-      }
+      let nomeProdutoHistorico = itensPedido.length === 1 
+        ? itensPedido[0].nomeProduto 
+        : `${itensPedido[0].nomeProduto} (+${itensPedido.length - 1} itens)`
+      
+      let statusHistorico = itensPedido.length === 1 
+        ? itensPedido[0].statusItem 
+        : `Misto (${itensPedido.length} modelos)`
 
       const qtdTotalItens = itensPedido.reduce((acc, item) => acc + item.quantidade, 0)
-      
       const proximoSequencial = String(vendasRecentes.length + 1).padStart(3, '0')
       const numeroPedidoGerado = `PED-202608-${proximoSequencial}`
 
       const agora = new Date()
-      const dataFormatada = agora.toLocaleDateString('pt-BR')
-      const horaFormatada = agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
-
-      // Gravação automatizada da Receita no Financeiro
       const yyyymmdd = `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, '0')}-${String(agora.getDate()).padStart(2, '0')}`
-      const paymentMethodMap: Record<string, string> = {
-        pix: 'Pix',
-        cartao: 'Cartão de Crédito',
-        boleto: 'Boleto',
-        dinheiro: 'Dinheiro'
+
+      // Tenta persistir no Supabase (tabela sales) primeiro para obter o id da venda
+      let saleId: any = null
+      let salesResult: any = null
+
+      try {
+        salesResult = await supabase
+          .from('sales')
+          .insert([{
+            numero_pedido: numeroPedidoGerado,
+            cliente: cliente,
+            produto: nomeProdutoHistorico,
+            qtd: qtdTotalItens,
+            total: valorTotalFinal,
+            pagamento: formaPagamento.toUpperCase(),
+            status: statusHistorico,
+            em_producao: temItensEmProducao,
+            fila_iniciada: !temItensEmProducao
+          }])
+          .select()
+
+        if (salesResult?.error) {
+          console.warn('Erro na inserção do Supabase em sales:', salesResult.error)
+        } else {
+          saleId = salesResult?.data?.[0]?.id || null
+        }
+      } catch (errSales) {
+        console.warn('Erro ao inserir venda no Supabase:', errSales)
       }
 
-      console.log('Iniciando gravação automatizada da receita no financeiro para o pedido:', numeroPedidoGerado)
-      console.log('Dados da transação a serem inseridos:', {
-        date: yyyymmdd,
-        type: 'Receita',
-        category: 'Vendas',
-        description: `Venda ${numeroPedidoGerado} - ${cliente}`,
-        amount: valorTotalFinal,
-        status: 'Concluído',
-        payment_method: paymentMethodMap[formaPagamento] || 'Pix',
-        payment_status: 'paid',
-        payment_gateway_fee: 0,
-        due_date: yyyymmdd
-      })
+      const novaVendaObjeto = {
+        id: saleId || Date.now(),
+        numeroPedido: numeroPedidoGerado,
+        cliente: cliente,
+        produto: nomeProdutoHistorico,
+        qtd: qtdTotalItens,
+        total: valorTotalFinal,
+        pagamento: formaPagamento.toUpperCase(),
+        status: statusHistorico,
+        emProducao: temItensEmProducao,
+        filaIniciada: !temItensEmProducao || false,
+        data: agora.toLocaleDateString('pt-BR'),
+        hora: agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+      }
 
-      const { error: financialError } = await supabase
+      // Calcula taxa de gateway estimada
+      let gatewayFee = 0
+      const formaPgLower = formaPagamento.toLowerCase()
+      if (formaPgLower === 'cartao' || formaPgLower === 'cartão') {
+        gatewayFee = valorTotalFinal * 0.03 // 3%
+      } else if (formaPgLower === 'boleto') {
+        gatewayFee = 3.00 // R$3 fixo
+      } else if (formaPgLower === 'pix') {
+        gatewayFee = valorTotalFinal * 0.005 // 0.5%
+      }
+
+      // Inserção no Financeiro com associação de sale_id, quantidade de itens e taxa de gateway
+      await supabase
         .from('financial_transactions')
         .insert([{
           date: yyyymmdd,
@@ -211,72 +238,26 @@ export default function VendasPage() {
           description: `Venda ${numeroPedidoGerado} - ${cliente}`,
           amount: valorTotalFinal,
           status: 'Concluído',
-          payment_method: paymentMethodMap[formaPagamento] || 'Pix',
+          payment_method: formaPagamento.toUpperCase(),
           payment_status: 'paid',
-          payment_gateway_fee: 0,
-          due_date: yyyymmdd
+          due_date: yyyymmdd,
+          payment_gateway_fee: Number(gatewayFee.toFixed(2)),
+          quantity: qtdTotalItens,
+          sale_id: saleId
         }])
 
-      if (financialError) {
-        console.error('Erro retornado pelo Supabase ao inserir transação financeira:', financialError)
-        throw financialError
-      } else {
-        console.log('Receita gravada com sucesso na tabela financial_transactions!')
-      }
+      // Atualiza o estado da lista local
+      setVendasRecentes(prev => [novaVendaObjeto, ...prev])
 
-      // Gravação automatizada do Pedido na tabela sales
-      console.log('Iniciando gravação do pedido na tabela sales do Supabase...', numeroPedidoGerado)
-      const dadosVendaInsert = {
-        numero_pedido: numeroPedidoGerado,
-        cliente: cliente,
-        produto: nomeProdutoHistorico,
-        qtd: qtdTotalItens,
-        total: valorTotalFinal,
-        pagamento: formaPagamento.toUpperCase(),
-        status: statusHistorico,
-        em_producao: temItensEmProducao,
-        fila_iniciada: !temItensEmProducao
-      }
-      console.log('Dados do pedido a serem inseridos em sales:', dadosVendaInsert)
-
-      const { data: insertSalesData, error: salesError } = await supabase
-        .from('sales')
-        .insert([dadosVendaInsert])
-        .select()
-
-      console.log('Retorno exato do Supabase (data) ao fazer INSERT na tabela sales:', insertSalesData)
-      if (salesError) {
-        console.error('Erro exato retornado pelo Supabase (error) ao fazer INSERT na tabela sales:', salesError)
-      } else {
-        console.log('Pedido gravado com sucesso na tabela sales do Supabase!')
-      }
-
-      const novaVenda = {
-        id: insertSalesData && insertSalesData[0]?.id ? insertSalesData[0].id : Date.now(),
-        numeroPedido: numeroPedidoGerado,
-        cliente,
-        produto: nomeProdutoHistorico,
-        qtd: qtdTotalItens,
-        total: valorTotalFinal,
-        pagamento: formaPagamento.toUpperCase(),
-        status: statusHistorico,
-        data: dataFormatada,
-        hora: horaFormatada,
-        emProducao: temItensEmProducao,
-        filaIniciada: !temItensEmProducao // Se tem itens indo pra produção mas recém entrou, consideramos que ainda aguarda (vermelho) ou pode ajustar conforme regra de fila
-      }
-
-      setVendasRecentes([novaVenda, ...vendasRecentes])
       setCliente('')
       setItensPedido([])
       setDescontoPercentual(0)
-      
-      fetchProdutos()
-      fetchSales() // Invoca imediatamente para atualizar o estado local do React a partir do Supabase
-      alert(`Pedido ${numeroPedidoGerado} finalizado com sucesso! Estoque atualizado e fila de produção incrementada.`)
+
+      await fetchProdutos()
+      alert(`Pedido ${numeroPedidoGerado} finalizado com sucesso!`)
 
     } catch (err: any) {
-      alert(`Erro ao finalizar pedido e atualizar produção: ${err.message || err}`)
+      alert(`Erro ao finalizar pedido: ${err.message || err}`)
     } finally {
       setSalvandoVenda(false)
     }
@@ -288,7 +269,6 @@ export default function VendasPage() {
 
   return (
     <div className="space-y-8 pb-12 max-w-7xl mx-auto w-full">
-      
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white/90 dark:bg-slate-900 backdrop-blur-xl p-6 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-sm">
         <div>
           <span className="text-xs font-black uppercase tracking-wider text-orange-600 dark:text-orange-400 bg-orange-500/10 px-3 py-1 rounded-full border border-orange-500/20">
@@ -300,7 +280,6 @@ export default function VendasPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        
         <div className="lg:col-span-2 bg-white/90 dark:bg-slate-900 backdrop-blur-xl p-8 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-xl space-y-6">
           <h2 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
             <svg className="w-5 h-5 text-orange-500" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -310,16 +289,10 @@ export default function VendasPage() {
           </h2>
 
           <form onSubmit={handleFinalizarVendaGeral} className="space-y-5">
-            
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               <div>
                 <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase mb-2">Cliente</label>
-                <select 
-                  value={cliente} 
-                  onChange={(e) => setCliente(e.target.value)}
-                  className={selectModernStyle}
-                  required
-                >
+                <select value={cliente} onChange={(e) => setCliente(e.target.value)} className={selectModernStyle} required>
                   <option value="">Selecione um cliente...</option>
                   <option value="Ana Souza">Ana Souza</option>
                   <option value="Carlos Silva">Carlos Silva</option>
@@ -329,11 +302,7 @@ export default function VendasPage() {
 
               <div>
                 <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase mb-2">Forma de Pagamento</label>
-                <select 
-                  value={formaPagamento} 
-                  onChange={(e) => setFormaPagamento(e.target.value)}
-                  className={selectModernStyle}
-                >
+                <select value={formaPagamento} onChange={(e) => setFormaPagamento(e.target.value)} className={selectModernStyle}>
                   <option value="pix">Pix</option>
                   <option value="cartao">Cartão</option>
                   <option value="dinheiro">Dinheiro</option>
@@ -354,55 +323,31 @@ export default function VendasPage() {
                       const id = e.target.value
                       setProdutoId(id)
                       const prod = produtosCatalogo.find((p) => String(p.id) === id)
-                      if (prod) {
-                        const precoSugerido = Number(prod.suggested_price || 0)
-                        setValorUnitario(precoSugerido)
-                      } else {
-                        setValorUnitario(0)
-                      }
+                      setValorUnitario(prod ? Number(prod.suggested_price || 0) : 0)
                     }}
                     className={selectModernStyle}
                   >
                     <option value="">{loadingProdutos ? 'Carregando estoque...' : 'Selecione o produto cadastrado...'}</option>
-                    {produtosCatalogo.map((prod) => {
-                      const precoExibicao = Number(prod.suggested_price || 0)
-                      return (
-                        <option key={prod.id} value={prod.id}>
-                          {prod.name} (Pronta: {prod.stock_ready || 0} un. | R$ {precoExibicao.toFixed(2)})
-                        </option>
-                      )
-                    })}
+                    {produtosCatalogo.map((prod) => (
+                      <option key={prod.id} value={prod.id}>
+                        {prod.name} (Pronta: {prod.stock_ready || 0} un. | R$ {Number(prod.suggested_price || 0).toFixed(2)})
+                      </option>
+                    ))}
                   </select>
                 </div>
 
                 <div className="grid grid-cols-3 gap-2">
                   <div>
                     <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase mb-2">Qtd</label>
-                    <input 
-                      type="number" 
-                      min="1" 
-                      value={quantidade} 
-                      onChange={(e) => setQuantidade(Number(e.target.value))}
-                      className={inputModernStyle}
-                    />
+                    <input type="number" min="1" value={quantidade} onChange={(e) => setQuantidade(Number(e.target.value))} className={inputModernStyle} />
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase mb-2">Unit. (R$)</label>
-                    <input 
-                      type="text" 
-                      value={`R$ ${valorUnitario.toFixed(2)}`} 
-                      disabled
-                      className={inputDisabledStyle}
-                    />
+                    <input type="text" value={`R$ ${valorUnitario.toFixed(2)}`} disabled className={inputDisabledStyle} />
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-orange-600 dark:text-orange-400 uppercase mb-2">Total</label>
-                    <input 
-                      type="text" 
-                      value={`R$ ${(quantidade * valorUnitario).toFixed(2)}`} 
-                      disabled
-                      className={inputDisabledStyle}
-                    />
+                    <input type="text" value={`R$ ${(quantidade * valorUnitario).toFixed(2)}`} disabled className={inputDisabledStyle} />
                   </div>
                 </div>
               </div>
@@ -410,8 +355,8 @@ export default function VendasPage() {
               {produtoAtual && (
                 <div className="p-4 rounded-2xl bg-orange-500/10 border border-orange-500/20 flex flex-col gap-1.5">
                   <div className="flex items-center justify-between text-xs font-bold text-orange-900 dark:text-orange-300">
-                    <span>Análise de Estoque Pronto para este item:</span>
-                    <span>Disponível na Prateleira: {estoqueProntoDisponivel} un.</span>
+                    <span>Análise de Estoque Pronto:</span>
+                    <span>Disponível: {estoqueProntoDisponivel} un.</span>
                   </div>
                   <div className="grid grid-cols-2 gap-2 mt-1">
                     <div className="bg-white/80 dark:bg-slate-900 px-3 py-2 rounded-xl text-xs font-bold text-emerald-700 dark:text-emerald-400">
@@ -436,7 +381,7 @@ export default function VendasPage() {
 
             {itensPedido.length > 0 && (
               <div className="space-y-3">
-                <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">Itens Adicionados no Pedido Atual ({itensPedido.length})</label>
+                <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">Itens Adicionados ({itensPedido.length})</label>
                 <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden">
                   <table className="w-full text-left border-collapse text-xs">
                     <thead>
@@ -445,7 +390,7 @@ export default function VendasPage() {
                         <th className="py-2.5 px-3">Qtd</th>
                         <th className="py-2.5 px-3">Unitário</th>
                         <th className="py-2.5 px-3">Subtotal</th>
-                        <th className="py-2.5 px-3">Destino / Status</th>
+                        <th className="py-2.5 px-3">Status</th>
                         <th className="py-2.5 px-3 text-center">Ação</th>
                       </tr>
                     </thead>
@@ -462,13 +407,7 @@ export default function VendasPage() {
                             </span>
                           </td>
                           <td className="py-3 px-3 text-center">
-                            <button 
-                              type="button"
-                              onClick={() => handleRemoverItem(item.id)}
-                              className="text-red-500 hover:text-red-700 font-bold px-2 py-1 bg-red-500/10 rounded-lg cursor-pointer"
-                            >
-                              ✕
-                            </button>
+                            <button type="button" onClick={() => handleRemoverItem(item.id)} className="text-red-500 hover:text-red-700 font-bold px-2 py-1 bg-red-500/10 rounded-lg">✕</button>
                           </td>
                         </tr>
                       ))}
@@ -478,25 +417,15 @@ export default function VendasPage() {
               </div>
             )}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase mb-2">Desconto Global do Pedido (%)</label>
-                <input 
-                  type="number" 
-                  min="0"
-                  max="100"
-                  value={descontoPercentual} 
-                  onChange={(e) => setDescontoPercentual(Number(e.target.value))}
-                  className={inputModernStyle}
-                  placeholder="0"
-                />
-              </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase mb-2">Desconto Global (%)</label>
+              <input type="number" min="0" max="100" value={descontoPercentual} onChange={(e) => setDescontoPercentual(Number(e.target.value))} className={inputModernStyle} placeholder="0" />
             </div>
 
             <button 
               type="submit"
               disabled={itensPedido.length === 0 || !cliente || salvandoVenda}
-              className="w-full mt-2 bg-gradient-to-r from-orange-500 to-amber-500 text-white font-bold py-4 px-6 rounded-2xl shadow-lg shadow-orange-500/25 hover:opacity-95 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full bg-gradient-to-r from-orange-500 to-amber-500 text-white font-bold py-4 px-6 rounded-2xl shadow-lg shadow-orange-500/25 hover:opacity-95 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
             >
               {salvandoVenda ? 'Processando Pedido...' : 'Finalizar Pedido Completo & Disparar Estoque/Produção'}
             </button>
@@ -539,7 +468,6 @@ export default function VendasPage() {
             </div>
           </div>
         </div>
-
       </div>
 
       <div className="bg-white/90 dark:bg-slate-900 backdrop-blur-xl p-8 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-xl space-y-4">
@@ -558,58 +486,72 @@ export default function VendasPage() {
                 <th className="py-3 px-4">Pagamento</th>
                 <th className="py-3 px-4">Status / Destino</th>
                 <th className="py-3 px-4 text-center">Monitor</th>
+                <th className="py-3 px-4 text-center">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-sm font-medium text-slate-700 dark:text-slate-300">
-              {vendasRecentes.map((v) => {
-                // Lógica dos Indicadores (LEDs piscando) ao final da linha
-                let dotColor = 'bg-emerald-500 shadow-emerald-500/50'
-                let labelStatus = '100% Concluído'
+              {vendasRecentes.length === 0 ? (
+                <tr>
+                  <td colSpan={10} className="py-6 text-center text-slate-400 text-xs">
+                    Nenhum pedido registrado até o momento.
+                  </td>
+                </tr>
+              ) : (
+                vendasRecentes.map((v) => {
+                  let dotColor = 'bg-emerald-500 shadow-emerald-500/50'
+                  let labelStatus = '100% Concluído'
 
-                if (v.emProducao) {
-                  if (v.filaIniciada) {
-                    dotColor = 'bg-amber-500 shadow-amber-500/50' // Amarelo/Laranja: Em produção ativa nas máquinas
-                    labelStatus = 'Em Produção'
-                  } else {
-                    dotColor = 'bg-rose-500 shadow-rose-500/50'   // Vermelho: Precisa produzir mas parado (não entrou na fila)
-                    labelStatus = 'Aguardando Fila'
+                  if (v.emProducao) {
+                    dotColor = v.filaIniciada ? 'bg-amber-500 shadow-amber-500/50' : 'bg-rose-500 shadow-rose-500/50'
+                    labelStatus = v.filaIniciada ? 'Em Produção' : 'Aguardando Fila'
                   }
-                }
 
-                return (
-                  <tr key={v.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition">
-                    <td className="py-4 px-4 font-mono font-bold text-orange-600 dark:text-orange-400 text-xs">{v.numeroPedido}</td>
-                    <td className="py-4 px-4 text-slate-500 dark:text-slate-400 text-xs font-medium">
-                      <div>{v.data}</div>
-                      <div className="text-[10px] text-slate-400">{v.hora}</div>
-                    </td>
-                    <td className="py-4 px-4 font-bold text-slate-900 dark:text-white">{v.cliente}</td>
-                    <td className="py-4 px-4">{v.produto}</td>
-                    <td className="py-4 px-4">{v.qtd}</td>
-                    <td className="py-4 px-4 font-black text-slate-900 dark:text-white">R$ {v.total.toFixed(2)}</td>
-                    <td className="py-4 px-4"><span className="text-xs bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-lg font-bold">{v.pagamento}</span></td>
-                    <td className="py-4 px-4">
-                      <span className="text-xs px-2.5 py-1 rounded-full font-bold bg-orange-500/10 text-orange-700 dark:text-orange-400 border border-orange-500/20">
-                        {v.status}
-                      </span>
-                    </td>
-                    <td className="py-4 px-4 text-center">
-                      <div className="flex items-center justify-center gap-2" title={labelStatus}>
-                        <span className="relative flex h-3.5 w-3.5">
-                          <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${dotColor}`}></span>
-                          <span className={`relative inline-flex rounded-full h-3.5 w-3.5 shadow-md ${dotColor}`}></span>
+                  return (
+                    <tr key={v.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition">
+                      <td className="py-4 px-4 font-mono font-bold text-orange-600 dark:text-orange-400 text-xs">{v.numeroPedido}</td>
+                      <td className="py-4 px-4 text-slate-500 dark:text-slate-400 text-xs font-medium">
+                        <div>{v.data}</div>
+                        <div className="text-[10px] text-slate-400">{v.hora}</div>
+                      </td>
+                      <td className="py-4 px-4 font-bold text-slate-900 dark:text-white">{v.cliente}</td>
+                      <td className="py-4 px-4">{v.produto}</td>
+                      <td className="py-4 px-4">{v.qtd}</td>
+                      <td className="py-4 px-4 font-black text-slate-900 dark:text-white">R$ {Number(v.total).toFixed(2)}</td>
+                      <td className="py-4 px-4"><span className="text-xs bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-lg font-bold">{v.pagamento}</span></td>
+                      <td className="py-4 px-4">
+                        <span className="text-xs px-2.5 py-1 rounded-full font-bold bg-orange-500/10 text-orange-700 dark:text-orange-400 border border-orange-500/20">
+                          {v.status}
                         </span>
-                        <span className="text-[10px] font-bold text-slate-400 hidden xl:inline">{labelStatus}</span>
-                      </div>
-                    </td>
-                  </tr>
-                )
-              })}
+                      </td>
+                      <td className="py-4 px-4 text-center">
+                        <div className="flex items-center justify-center gap-2" title={labelStatus}>
+                          <span className="relative flex h-3.5 w-3.5">
+                            <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${dotColor}`}></span>
+                            <span className={`relative inline-flex rounded-full h-3.5 w-3.5 shadow-md ${dotColor}`}></span>
+                          </span>
+                          <span className="text-[10px] font-bold text-slate-400 hidden xl:inline">{labelStatus}</span>
+                        </div>
+                      </td>
+                      <td className="py-4 px-4 text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleDeletarVenda(v.id, v.numeroPedido)}
+                          className="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-500/10 rounded-xl transition cursor-pointer"
+                          title="Excluir Venda e Financeiro"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })
+              )}
             </tbody>
           </table>
         </div>
       </div>
-
     </div>
   )
 }

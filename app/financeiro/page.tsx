@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import Link from 'next/link'
 import Calendar from 'react-calendar'
@@ -21,12 +21,16 @@ import {
   Settings, 
   FileText,
   CreditCard,
-  AlertCircle,
   Eye,
   X,
   Percent,
   Clock,
-  Gauge
+  Gauge,
+  Zap,
+  Target,
+  BarChart3,
+  Check,
+  Hash
 } from 'lucide-react'
 
 type FixedCost = {
@@ -37,6 +41,7 @@ type FixedCost = {
   due_day?: number
   payment_method?: string
   status?: string
+  created_at?: string
 }
 
 type Transaction = {
@@ -53,6 +58,7 @@ type Transaction = {
   payment_status?: 'pending' | 'paid' | 'cancelled'
   sale_id?: string
   order_id?: string
+  created_at?: string
 }
 
 type Product3D = {
@@ -60,6 +66,11 @@ type Product3D = {
   name: string
   category: string
   suggested_price: number
+}
+
+type SaleItem = {
+  nome: string
+  qtd: number
 }
 
 const CATEGORIAS_RECEITA = [
@@ -85,13 +96,12 @@ const CATEGORIAS_CUSTO_FIXO = [
   'Internet / Conectividade',
   'Softwares & Licenças (Fusion 360, Slicers PRO)',
   'Assinaturas & Ferramentas de Gestão',
-  'Contนนidade / Manutenção Preventiva',
+  'Contabilidade / Manutenção Preventiva',
   'Outros Custos Fixos'
 ]
 
 export default function FinanceiroPage() {
   const [fixedCosts, setFixedCosts] = useState<FixedCost[]>([])
-  // Estado para o Modal de Detalhes da Venda
   const [selectedSaleDetail, setSelectedSaleDetail] = useState<any | null>(null)
   const [loadingSaleDetail, setLoadingSaleDetail] = useState(false)
   const [showSaleModal, setShowSaleModal] = useState(false)
@@ -100,7 +110,13 @@ export default function FinanceiroPage() {
   const [fetching, setFetching] = useState(true)
   const [sucessoMsg, setSucessoMsg] = useState('')
 
-  // States para Custos Fixos Aprimorados
+  // Filtro por Mês/Ano (padrão: mês atual YYYY-MM)
+  const [selectedMonth, setSelectedMonth] = useState<string>(() => {
+    const today = new Date()
+    return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
+  })
+
+  // States para Custos Fixos
   const [costDescription, setCostDescription] = useState('')
   const [costAmount, setCostAmount] = useState<number>(0)
   const [costCategory, setCostCategory] = useState('')
@@ -118,7 +134,6 @@ export default function FinanceiroPage() {
   const [tDescription, setTDescription] = useState('')
   const [tAmount, setTAmount] = useState<number>(0)
   const [tQuantity, setTQuantity] = useState<number>(1)
-  const [tStatus, setTStatus] = useState('Concluído')
   const [tPaymentMethod, setTPaymentMethod] = useState('Pix')
   const [tDueDate, setTDueDate] = useState('')
   const [tPaymentStatus, setTPaymentsStatus] = useState<'pending' | 'paid' | 'cancelled'>('paid')
@@ -164,6 +179,53 @@ export default function FinanceiroPage() {
     fetchData()
   }, [])
 
+  // FILTRAGEM DE CUSTOS FIXOS PELO MÊS SELECIONADO
+  const monthFilteredFixedCosts = useMemo(() => {
+    if (!selectedMonth) return fixedCosts
+    return fixedCosts.filter(cost => {
+      if (!cost.created_at) return true
+      const createdMonth = cost.created_at.substring(0, 7)
+      return createdMonth <= selectedMonth
+    })
+  }, [fixedCosts, selectedMonth])
+
+  // FILTRAGEM DE TRANSAÇÕES PELO MÊS SELECIONADO
+  const monthFilteredTransactions = useMemo(() => {
+    if (!selectedMonth) return transactions
+    return transactions.filter(t => t.date && t.date.startsWith(selectedMonth))
+  }, [transactions, selectedMonth])
+
+  // CÁLCULOS FINANCEIROS
+  const totalFixedCosts = useMemo(() => {
+    return monthFilteredFixedCosts.reduce((acc, item) => acc + Number(item.amount || 0), 0)
+  }, [monthFilteredFixedCosts])
+  
+  const totalReceitas = useMemo(() => {
+    return monthFilteredTransactions
+      .filter(t => t.type === 'Receita' && t.payment_status !== 'cancelled')
+      .reduce((acc, item) => acc + Number(item.amount || 0), 0)
+  }, [monthFilteredTransactions])
+
+  const totalDespesas = useMemo(() => {
+    return monthFilteredTransactions
+      .filter(t => t.type === 'Despesa' && t.payment_status !== 'cancelled')
+      .reduce((acc, item) => acc + Number(item.amount || 0), 0)
+  }, [monthFilteredTransactions])
+
+  const balancoLiquido = totalReceitas - (totalDespesas + totalFixedCosts)
+
+  // KPI'S DE VENDAS
+  const vendasTrans = useMemo(() => monthFilteredTransactions.filter(t => t.type === 'Receita' && (t.category === 'Vendas' || /PED-/i.test(t.description))), [monthFilteredTransactions])
+  const ticketMedio = useMemo(() => vendasTrans.length > 0 ? totalReceitas / vendasTrans.length : 0, [vendasTrans, totalReceitas])
+  const margemLiquidaPct = useMemo(() => totalReceitas > 0 ? (balancoLiquido / totalReceitas) * 100 : 0, [balancoLiquido, totalReceitas])
+
+  // METRICAS DE BREAK-EVEN
+  const breakEvenReais = totalFixedCosts
+  const avgHourlyRate = 25 
+  const avgFilamentPriceGram = 0.12 
+  const breakEvenHours = totalFixedCosts > 0 ? totalFixedCosts / avgHourlyRate : 0
+  const breakEvenGrams = totalFixedCosts > 0 ? totalFixedCosts / avgFilamentPriceGram : 0
+
   const handleViewSaleDetail = async (tr: Transaction) => {
     try {
       setLoadingSaleDetail(true)
@@ -181,31 +243,54 @@ export default function FinanceiroPage() {
       let saleData: any = null
 
       if (saleId) {
-        const { data, error } = await supabase.from('sales').select('*').eq('id', saleId).single()
+        const { data, error } = await supabase.from('sales').select('*').eq('id', saleId).maybeSingle()
         if (data && !error) saleData = data
       }
 
       if (!saleData && orderNumber) {
-        const { data, error } = await supabase.from('sales').select('*').eq('numero_pedido', orderNumber).single()
+        const { data, error } = await supabase.from('sales').select('*').eq('numero_pedido', orderNumber).maybeSingle()
         if (data && !error) {
           saleData = data
-        } else {
-          const { data: data2 } = await supabase.from('sales').select('*').eq('numero_pedido', orderNumber).single()
-          if (data2) saleData = data2
         }
       }
 
       if (!saleData) {
-        const itemMock = tr.description.replace(/^Venda\s+PED-\d{6}-\d{3}\s*-\s*/i, '').replace(/^Venda:\s*/i, '').replace(/\s*\(Qtd:\s*\d+\)/i, '')
-        const qtyMock = tr.description.match(/\(Qtd:\s*(\d+)\)/i)?.[1] ? Number(tr.description.match(/\(Qtd:\s*(\d+)\)/i)?.[1]) : 1
-        const clienteMock = tr.description.split(' - ')?.[1] || 'Cliente Geral'
+        let rawDesc = tr.description
+        const qtyMatch = rawDesc.match(/\(Qtd:\s*(\d+)\)/i)
+        const qtyMock = qtyMatch ? Number(qtyMatch[1]) : 1
+
+        let clienteMock = ''
+        let produtoMock = ''
+
+        if (rawDesc.includes('-')) {
+          const parts = rawDesc.split('-').map(p => p.trim())
+          if (parts.length >= 2) {
+            clienteMock = parts[parts.length - 1].replace(/\(Qtd:\s*\d+\)/i, '').trim()
+            produtoMock = parts.slice(0, parts.length - 1).join(' - ')
+              .replace(/^Venda:\s*/i, '')
+              .replace(/^Venda\s+/i, '')
+              .replace(/PED-\d{6}-\d{3}/i, '')
+              .trim()
+          }
+        }
+
+        if (!clienteMock) clienteMock = 'Cliente Geral'
+        
+        if (!produtoMock) {
+          produtoMock = rawDesc
+            .replace(/^Venda:\s*/i, '')
+            .replace(/PED-\d{6}-\d{3}\s*-?\s*/i, '')
+            .replace(/\(Qtd:\s*\d+\)/i, '')
+            .trim()
+        }
 
         saleData = {
           id: tr.id,
-          numero_pedido: orderNumber || `PED-MOCK-001`,
+          numero_pedido: orderNumber || `PED-OFFLINE`,
           cliente: clienteMock,
-          produto: itemMock || 'Modelo 3D Geral',
+          produto: produtoMock || 'Modelo 3D Selecionado',
           qtd: qtyMock,
+          subtotal: tr.amount,
           total: tr.amount,
           pagamento: tr.payment_method || 'PIX',
           status: 'Concluído',
@@ -214,36 +299,66 @@ export default function FinanceiroPage() {
         }
       }
 
-      let weightG = 0
-      let printTimeHours = 0
+      const numeroPedidoFinal = saleData.numero_pedido || saleData.numeroPedido || orderNumber || 'PED-S/N'
+      const clienteFinal = saleData.cliente || saleData.client || 'Cliente Geral'
+      const totalFinal = Number(saleData.total || tr.amount || 0)
+      const subtotalFinal = Number(saleData.subtotal || totalFinal)
+      const pagamentoFinal = saleData.pagamento || tr.payment_method || 'PIX'
 
-      const prodName = saleData.produto.toLowerCase()
-      const matchedProd = products3D.find(p => prodName.includes(p.name.toLowerCase()) || p.name.toLowerCase().includes(prodName))
-      
-      if (matchedProd) {
-        const { data: fullProd } = await supabase.from('products_3d').select('weight_g, print_time_hours').eq('id', matchedProd.id).single()
-        if (fullProd) {
-          weightG = (fullProd.weight_g || 0) * (saleData.qtd || 1)
-          printTimeHours = (fullProd.print_time_hours || 0) * (saleData.qtd || 1)
+      // Normalizar lista de itens comprados
+      let itemsList: SaleItem[] = []
+
+      if (Array.isArray(saleData.itens) && saleData.itens.length > 0) {
+        itemsList = saleData.itens.map((it: any) => ({
+          nome: it.nome || it.produto || it.name || 'Modelo 3D',
+          qtd: Number(it.qtd || it.quantidade || 1)
+        }))
+      } else if (Array.isArray(saleData.items) && saleData.items.length > 0) {
+        itemsList = saleData.items.map((it: any) => ({
+          nome: it.nome || it.produto || it.name || 'Modelo 3D',
+          qtd: Number(it.qtd || it.quantidade || 1)
+        }))
+      } else {
+        const rawProdStr = saleData.produto || saleData.modelo_comprado || saleData.modelo_selecionado || saleData.nome_modelo || tr.description
+        
+        // Remove sufixos como (+X itens) se existirem para evitar poluição no texto
+        const cleanProdStr = rawProdStr.replace(/\(\+\d+\s*itens\)/gi, '').trim()
+
+        if (cleanProdStr.includes(',') || cleanProdStr.includes('+')) {
+          const parts = cleanProdStr.split(/,|\+/).map((p: string) => p.trim()).filter(Boolean)
+          itemsList = parts.map((part: string) => {
+            const matchQtd = part.match(/\(Qtd:\s*(\d+)\)/i) || part.match(/x\s*(\d+)/i) || part.match(/^(\d+)x/i)
+            const q = matchQtd ? Number(matchQtd[1]) : Number(saleData.qtd || 1)
+            const n = part.replace(/\(Qtd:\s*\d+\)/i, '').replace(/x\s*\d+/i, '').replace(/^\d+x/i, '').trim()
+            return { nome: n || 'Modelo 3D Selecionado', qtd: q }
+          })
+        } else {
+          const quantidadeFinal = Number(saleData.qtd || saleData.quantidade || 1)
+          const nomeLimpo = cleanProdStr.replace(/^Venda:\s*/i, '').replace(/\(Qtd:\s*\d+\)/i, '').trim()
+          itemsList = [{ nome: nomeLimpo || 'Modelo 3D Selecionado', qtd: quantidadeFinal }]
         }
       }
 
-      if (weightG === 0) {
-        weightG = (saleData.qtd || 1) * 45 
-      }
-      if (printTimeHours === 0) {
-        printTimeHours = (saleData.qtd || 1) * 3
-      }
+      const totalQtdItems = itemsList.reduce((acc, item) => acc + item.qtd, 0)
+      let weightG = 45 * totalQtdItems
+      let printTimeHours = 3 * totalQtdItems
 
       const gatewayFee = tr.payment_gateway_fee || 0
-      const taxes = tr.amount * 0.06
-
+      const taxes = totalFinal * 0.06
       const materialCost = weightG * 0.09 
       const machineCost = printTimeHours * 1.20 
-      const netProfit = tr.amount - gatewayFee - taxes - materialCost - machineCost
+      const netProfit = totalFinal - gatewayFee - taxes - materialCost - machineCost
 
       setSelectedSaleDetail({
         ...saleData,
+        numero_pedido: numeroPedidoFinal,
+        cliente: clienteFinal,
+        items: itemsList,
+        total: totalFinal,
+        subtotal: subtotalFinal,
+        pagamento: pagamentoFinal,
+        desconto_pct: saleData.desconto_pct || saleData.descontoPercentual || 0,
+        desconto_valor: saleData.desconto_valor || (subtotalFinal - totalFinal),
         weight_g: weightG,
         print_time_hours: printTimeHours,
         gateway_fee: gatewayFee,
@@ -296,6 +411,9 @@ export default function FinanceiroPage() {
 
     setLoadingCost(true)
     setSucessoMsg('')
+    
+    const createdDate = `${selectedMonth}-01T00:00:00`
+
     try {
       const { error } = await supabase.from('fixed_costs').insert([{ 
         description: costDescription, 
@@ -303,7 +421,8 @@ export default function FinanceiroPage() {
         category: costCategory,
         due_day: costDueDay,
         payment_method: costPaymentMethod,
-        status: 'Ativo'
+        status: 'Ativo',
+        created_at: createdDate
       }])
       if (error) throw error
 
@@ -319,6 +438,31 @@ export default function FinanceiroPage() {
       alert('Erro ao salvar custo fixo: ' + error.message)
     } finally {
       setLoadingCost(false)
+    }
+  }
+
+  const handlePayFixedCostNow = async (cost: FixedCost) => {
+    if (!confirm(`Deseja lançar a despesa "${cost.description}" de ${formatCurrency(cost.amount)} no caixa do mês selecionado (${selectedMonth})?`)) return
+
+    const payDate = `${selectedMonth}-10`
+    try {
+      const { error } = await supabase.from('financial_transactions').insert([{
+        date: payDate,
+        type: 'Despesa',
+        category: cost.category || 'Outras Despesas',
+        description: `Custo Fixo: ${cost.description}`,
+        amount: cost.amount,
+        status: 'Concluído',
+        payment_method: cost.payment_method || 'Boleto / Pix',
+        payment_status: 'paid'
+      }])
+
+      if (error) throw error
+      setSucessoMsg(`Custo fixo "${cost.description}" registrado nas despesas!`)
+      fetchData()
+      setTimeout(() => setSucessoMsg(''), 4000)
+    } catch (err: any) {
+      alert('Erro ao lançar custo fixo no caixa: ' + err.message)
     }
   }
 
@@ -369,7 +513,6 @@ export default function FinanceiroPage() {
       setTDescription('')
       setTAmount(0)
       setTQuantity(1)
-      setTStatus('Concluído')
       setTPaymentMethod('Pix')
       setTDueDate('')
       setTPaymentsStatus('paid')
@@ -385,25 +528,15 @@ export default function FinanceiroPage() {
     }
   }
 
-  const handleDeleteTransaction = async (id: string) => {
-    if (!confirm('Deseja realmente excluir esta transação?')) return
-    try {
-      const { error } = await supabase.from('financial_transactions').delete().eq('id', id)
-      if (error) throw error
-      fetchData()
-    } catch (error: any) {
-      alert('Erro ao excluir: ' + error.message)
-    }
-  }
-
   const formatCurrency = (val: number) => {
     return Number(val || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
   }
 
   const formatDateDisplay = (dateStr: string) => {
     if (!dateStr) return 'Selecione a data...'
-    const [year, month, day] = dateStr.split('-')
-    return `${day}/${month}/${year}`
+    const parts = dateStr.split('T')[0].split('-')
+    if (parts.length < 3) return dateStr
+    return `${parts[2]}/${parts[1]}/${parts[0]}`
   }
 
   const handleDateChange = (value: any) => {
@@ -415,22 +548,17 @@ export default function FinanceiroPage() {
     setShowCalendar(false)
   }
 
-  const filteredTransactions = transactions.filter(tr => {
+  const filteredTransactions = monthFilteredTransactions.filter(tr => {
     const matchesSearch = tr.description.toLowerCase().includes(searchTrans.toLowerCase()) || 
                           (tr.category && tr.category.toLowerCase().includes(searchTrans.toLowerCase()))
     const matchesType = filterType === 'Todos' || tr.type === filterType
     return matchesSearch && matchesType
   })
 
-  const filteredFixedCosts = fixedCosts.filter(cost => {
+  const filteredFixedCosts = monthFilteredFixedCosts.filter(cost => {
     return cost.description.toLowerCase().includes(searchCost.toLowerCase()) || 
            (cost.category && cost.category.toLowerCase().includes(searchCost.toLowerCase()))
   })
-
-  const totalFixedCosts = fixedCosts.reduce((acc, item) => acc + Number(item.amount), 0)
-  const totalReceitas = transactions.filter(t => t.type === 'Receita').reduce((acc, item) => acc + Number(item.amount), 0)
-  const totalDespesas = transactions.filter(t => t.type === 'Despesa').reduce((acc, item) => acc + Number(item.amount), 0)
-  const balancoLiquido = totalReceitas - (totalDespesas + totalFixedCosts)
 
   const currentCategories = tType === 'Receita' ? CATEGORIAS_RECEITA : CATEGORIAS_DESPESA
 
@@ -442,29 +570,40 @@ export default function FinanceiroPage() {
       className="space-y-6 w-full pb-16 px-4 sm:px-6 lg:px-8"
     >
       
-      {/* HEADER EXECUTIVO REFINADO */}
+      {/* HEADER EXECUTIVO */}
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
         <div>
           <div className="flex items-center gap-2 mb-2">
             <span className="px-3 py-1 rounded-full bg-orange-500/10 border border-orange-500/20 text-orange-600 dark:text-orange-400 text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5">
               <span className="h-1.5 w-1.5 rounded-full bg-orange-500 animate-pulse"></span>
-              Enterprise OS • Financeiro & Caixa
+              Enterprise OS • Financeiro & Caixa 3D
             </span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
             Controle Financeiro & Fluxo de Caixa
           </h1>
           <p className="text-slate-500 dark:text-slate-400 text-xs mt-1">
-            Gerencie seus custos fixos estruturados e transações integradas ao Supabase com precisão profissional.
+            Gestão de faturamento, engenharia de custos e ponto de equilíbrio da sua Print Farm.
           </p>
         </div>
 
-        <div>
+        <div className="flex flex-col sm:flex-row items-center gap-3 w-full lg:w-auto">
+          {/* SELETOR DE MÊS / ANO */}
+          <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 p-2 rounded-2xl border border-slate-200 dark:border-slate-700 w-full sm:w-auto">
+            <CalendarIcon className="w-4 h-4 text-orange-500 ml-2" />
+            <input 
+              type="month" 
+              value={selectedMonth} 
+              onChange={(e) => setSelectedMonth(e.target.value)}
+              className="bg-transparent text-xs font-black text-slate-900 dark:text-white outline-none cursor-pointer pr-2"
+            />
+          </div>
+
           <Link 
             href="/dashboard" 
-            className="px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 text-xs font-bold transition flex items-center gap-1.5"
+            className="px-4 py-2.5 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 text-xs font-bold transition flex items-center justify-center gap-1.5 w-full sm:w-auto"
           >
-            <ArrowLeft className="w-4 h-4" /> Voltar ao Dashboard
+            <ArrowLeft className="w-4 h-4" /> Voltar
           </Link>
         </div>
       </div>
@@ -482,13 +621,13 @@ export default function FinanceiroPage() {
         )}
       </AnimatePresence>
 
-      {/* CARDS DE RESUMO */}
+      {/* CARDS DE RESUMO FINANCEIRO */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         {[
-          { title: 'Total de Receitas', value: formatCurrency(totalReceitas), color: 'text-emerald-600 dark:text-emerald-400', icon: TrendingUp },
-          { title: 'Total de Despesas', value: formatCurrency(totalDespesas), color: 'text-amber-600 dark:text-amber-400', icon: TrendingDown },
-          { title: 'Custos Fixos Mensais', value: formatCurrency(totalFixedCosts), color: 'text-rose-600 dark:text-rose-400', icon: Settings },
-          { title: 'Balanço Líquido', value: formatCurrency(balancoLiquido), color: balancoLiquido >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400', icon: Wallet }
+          { title: `Receitas (${selectedMonth})`, value: formatCurrency(totalReceitas), color: 'text-emerald-600 dark:text-emerald-400', icon: TrendingUp },
+          { title: `Despesas Variáveis`, value: formatCurrency(totalDespesas), color: 'text-amber-600 dark:text-amber-400', icon: TrendingDown },
+          { title: `Custos Fixos (${selectedMonth})`, value: formatCurrency(totalFixedCosts), color: 'text-rose-600 dark:text-rose-400', icon: Settings },
+          { title: `Balanço Líquido`, value: formatCurrency(balancoLiquido), color: balancoLiquido >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400', icon: Wallet }
         ].map((card, idx) => {
           const IconComponent = card.icon
           return (
@@ -510,13 +649,117 @@ export default function FinanceiroPage() {
         })}
       </div>
 
-      {/* SEÇÃO DE CUSTOS FIXOS APRIMORADA */}
+      {/* PAINEL DE METRICAS DE ENGENHARIA 3D & BREAK-EVEN */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        {/* CARD BREAK-EVEN DE IMPRESSÃO */}
+        <div className="bg-gradient-to-br from-slate-900 to-slate-950 p-6 rounded-3xl border border-slate-800 text-white space-y-4 shadow-md relative overflow-hidden">
+          <div className="flex justify-between items-center">
+            <div className="flex items-center gap-2">
+              <Target className="w-5 h-5 text-orange-500" />
+              <h3 className="text-xs font-black uppercase tracking-wider text-slate-300">Ponto de Equilíbrio (Break-Even)</h3>
+            </div>
+            <span className="px-2.5 py-1 rounded-full bg-orange-500/10 text-orange-400 border border-orange-500/20 text-[10px] font-black">
+              {selectedMonth}
+            </span>
+          </div>
+
+          <div className="space-y-1">
+            <span className="text-slate-400 text-[10px] uppercase font-bold tracking-wider">Faturamento Mínimo Necessário</span>
+            <div className="text-2xl font-black text-white">{formatCurrency(breakEvenReais)}</div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-800">
+            <div className="bg-slate-900/80 p-3 rounded-2xl border border-slate-800 flex items-center gap-2.5">
+              <Clock className="w-4 h-4 text-violet-400" />
+              <div>
+                <span className="text-[9px] text-slate-400 uppercase font-bold block">Horas Mínimas</span>
+                <span className="text-xs font-black text-white">{breakEvenHours.toFixed(0)} horas/mês</span>
+              </div>
+            </div>
+
+            <div className="bg-slate-900/80 p-3 rounded-2xl border border-slate-800 flex items-center gap-2.5">
+              <Gauge className="w-4 h-4 text-blue-400" />
+              <div>
+                <span className="text-[9px] text-slate-400 uppercase font-bold block">Material Mínimo</span>
+                <span className="text-xs font-black text-white">{(breakEvenGrams / 1000).toFixed(1)} kg filamento</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* CARD DE METRICAS DE VENDAS */}
+        <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 space-y-4 shadow-sm">
+          <div className="flex justify-between items-center">
+            <div className="flex items-center gap-2">
+              <BarChart3 className="w-5 h-5 text-emerald-500" />
+              <h3 className="text-xs font-black uppercase tracking-wider text-slate-400">Indicadores de Venda</h3>
+            </div>
+            <span className="px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 text-[10px] font-black">
+              {vendasTrans.length} Pedidos
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4 pt-2">
+            <div className="space-y-1">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Ticket Médio</span>
+              <span className="text-xl font-black text-slate-900 dark:text-white">{formatCurrency(ticketMedio)}</span>
+            </div>
+
+            <div className="space-y-1">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Margem Líquida</span>
+              <span className={`text-xl font-black ${margemLiquidaPct >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                {margemLiquidaPct.toFixed(1)}%
+              </span>
+            </div>
+          </div>
+
+          <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-2 overflow-hidden mt-2">
+            <div 
+              className={`h-full rounded-full ${margemLiquidaPct >= 0 ? 'bg-emerald-500' : 'bg-rose-500'}`} 
+              style={{ width: `${Math.min(Math.max(margemLiquidaPct, 5), 100)}%` }}
+            />
+          </div>
+        </div>
+
+        {/* CARD DE SAÚDE FINANCEIRA */}
+        <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 space-y-3 shadow-sm flex flex-col justify-between">
+          <div className="flex items-center gap-2">
+            <Zap className="w-5 h-5 text-amber-500" />
+            <h3 className="text-xs font-black uppercase tracking-wider text-slate-400">Eficiência Financeira</h3>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex justify-between text-xs">
+              <span className="text-slate-500">Comprometimento com Custo Fixo:</span>
+              <span className="font-bold text-slate-900 dark:text-white">
+                {totalReceitas > 0 ? ((totalFixedCosts / totalReceitas) * 100).toFixed(1) : 0}%
+              </span>
+            </div>
+            <div className="flex justify-between text-xs">
+              <span className="text-slate-500">Custo Operacional Variável:</span>
+              <span className="font-bold text-slate-900 dark:text-white">
+                {totalReceitas > 0 ? ((totalDespesas / totalReceitas) * 100).toFixed(1) : 0}%
+              </span>
+            </div>
+          </div>
+
+          <p className="text-[10px] text-slate-400 bg-slate-50 dark:bg-slate-950 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800">
+            {balancoLiquido >= 0 
+              ? `🟢 Em ${selectedMonth}, sua operação está cobrindo a estrutura e gerando caixa positivo.` 
+              : `🔴 Em ${selectedMonth}, a receita do mês não cobre totalmente os custos fixos da oficina.`}
+          </p>
+        </div>
+
+      </div>
+
+      {/* SEÇÃO DE CUSTOS FIXOS */}
       <div className="space-y-6 pt-4 border-t border-slate-200 dark:border-slate-800">
         
         {/* FORMULÁRIO DE CUSTOS FIXOS */}
         <form onSubmit={handleAddFixedCost} className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
           <h2 className="text-base font-extrabold text-slate-900 dark:text-white mb-2 flex items-center gap-2">
-            <Settings className="w-5 h-5 text-orange-500" /> Novo Custo Fixo Mensal (Estrutura 3D)
+            <Settings className="w-5 h-5 text-orange-500" /> Novo Custo Fixo Mensal (A partir de {selectedMonth})
           </h2>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
@@ -594,19 +837,22 @@ export default function FinanceiroPage() {
             <button 
               type="submit" 
               disabled={loadingCost}
-              className="px-6 py-3 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold transition shadow-sm disabled:opacity-50 flex items-center gap-2"
+              className="px-6 py-3 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold transition shadow-sm disabled:opacity-50 flex items-center gap-2 cursor-pointer"
             >
               <PlusCircle className="w-4 h-4" /> {loadingCost ? 'Salvando...' : 'Adicionar Custo Fixo'}
             </button>
           </div>
         </form>
 
-        {/* TABELA DE CUSTOS FIXOS APRIMORADA */}
+        {/* TABELA DE CUSTOS FIXOS */}
         <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
           <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-            <h2 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
-              <FileText className="w-5 h-5 text-orange-500" /> Custos Fixos Cadastrados
-            </h2>
+            <div>
+              <h2 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                <FileText className="w-5 h-5 text-orange-500" /> Custos Fixos em Atividade ({selectedMonth})
+              </h2>
+              <span className="text-xs text-slate-400">Exibindo apenas custos vigentes até o mês selecionado</span>
+            </div>
             <div className="relative w-full sm:w-64">
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
               <input 
@@ -627,6 +873,7 @@ export default function FinanceiroPage() {
                   <th className="p-4">Categoria</th>
                   <th className="p-4">Vencimento</th>
                   <th className="p-4">Forma de Pagamento</th>
+                  <th className="p-4">Ativo Desde</th>
                   <th className="p-4">Valor Mensal</th>
                   <th className="p-4 pr-6 text-center">Ações</th>
                 </tr>
@@ -634,14 +881,14 @@ export default function FinanceiroPage() {
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 text-xs text-slate-600 dark:text-slate-300">
                 {fetching ? (
                   <tr>
-                    <td colSpan={6} className="p-8 text-center text-slate-400">
+                    <td colSpan={7} className="p-8 text-center text-slate-400">
                       Carregando custos fixos...
                     </td>
                   </tr>
                 ) : filteredFixedCosts.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="p-8 text-center text-slate-400 dark:text-slate-500">
-                      Nenhum custo fixo encontrado.
+                    <td colSpan={7} className="p-8 text-center text-slate-400 dark:text-slate-500">
+                      Nenhum custo fixo vigente encontrado para {selectedMonth}.
                     </td>
                   </tr>
                 ) : (
@@ -657,12 +904,22 @@ export default function FinanceiroPage() {
                           <CreditCard className="w-3 h-3 text-slate-400" /> {cost.payment_method || 'Boleto / Pix'}
                         </span>
                       </td>
+                      <td className="p-4 text-slate-400 text-[11px] font-medium whitespace-nowrap">
+                        {cost.created_at ? formatDateDisplay(cost.created_at.substring(0, 10)) : 'Início'}
+                      </td>
                       <td className="p-4 font-extrabold text-rose-600 dark:text-rose-400 whitespace-nowrap">{formatCurrency(cost.amount)}</td>
-                      <td className="p-4 pr-6 text-center whitespace-nowrap">
+                      <td className="p-4 pr-6 text-center whitespace-nowrap flex items-center justify-center gap-1.5">
+                        <button 
+                          onClick={() => handlePayFixedCostNow(cost)}
+                          title={`Lançar como despesa no caixa de ${selectedMonth}`}
+                          className="text-slate-400 hover:text-emerald-500 transition p-2 rounded-xl hover:bg-emerald-500/10 inline-flex items-center justify-center cursor-pointer"
+                        >
+                          <Check className="w-4 h-4" />
+                        </button>
                         <button 
                           onClick={() => handleDeleteFixedCost(cost.id)}
                           title="Excluir Custo Fixo"
-                          className="text-slate-400 hover:text-rose-500 transition p-2 rounded-xl hover:bg-rose-500/10 inline-flex items-center justify-center"
+                          className="text-slate-400 hover:text-rose-500 transition p-2 rounded-xl hover:bg-rose-500/10 inline-flex items-center justify-center cursor-pointer"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -871,7 +1128,7 @@ export default function FinanceiroPage() {
             <button 
               type="submit" 
               disabled={loadingTrans}
-              className="px-6 py-3 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold transition shadow-sm disabled:opacity-50 flex items-center gap-2"
+              className="px-6 py-3 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold transition shadow-sm disabled:opacity-50 flex items-center gap-2 cursor-pointer"
             >
               <PlusCircle className="w-4 h-4" /> {loadingTrans ? 'Salvando...' : 'Adicionar Transação'}
             </button>
@@ -881,9 +1138,12 @@ export default function FinanceiroPage() {
         {/* TABELA DE TRANSAÇÕES */}
         <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
           <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-            <h2 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
-              <FileText className="w-5 h-5 text-orange-500" /> Histórico de Transações
-            </h2>
+            <div>
+              <h2 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                <FileText className="w-5 h-5 text-orange-500" /> Histórico de Transações
+              </h2>
+              <span className="text-xs text-slate-400">Exibindo registros de {selectedMonth}</span>
+            </div>
             
             <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
               <div className="relative">
@@ -933,14 +1193,14 @@ export default function FinanceiroPage() {
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 text-xs text-slate-600 dark:text-slate-300">
                 {fetching ? (
                   <tr>
-                    <td colSpan={7} className="p-8 text-center text-slate-400">
+                    <td colSpan={10} className="p-8 text-center text-slate-400">
                       Carregando transações...
                     </td>
                   </tr>
                 ) : filteredTransactions.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="p-8 text-center text-slate-400 dark:text-slate-500">
-                      Nenhuma transação encontrada com os filtros atuais.
+                    <td colSpan={10} className="p-8 text-center text-slate-400 dark:text-slate-500">
+                      Nenhuma transação encontrada para {selectedMonth}.
                     </td>
                   </tr>
                 ) : (
@@ -974,7 +1234,7 @@ export default function FinanceiroPage() {
                         {formatCurrency(tr.amount)}
                       </td>
                       <td className="p-4 pr-6 text-center whitespace-nowrap flex items-center justify-center gap-1.5">
-                        {(tr.type === 'Receita' && (tr.sale_id || tr.order_id || tr.category === 'Vendas' || /PED-\d{6}-\d{3}/i.test(tr.description))) && (
+                        {(tr.type === 'Receita' && (tr.sale_id || tr.order_id || tr.category === 'Vendas' || /PED-/i.test(tr.description))) ? (
                           <button 
                             type="button"
                             onClick={() => handleViewSaleDetail(tr)}
@@ -983,14 +1243,9 @@ export default function FinanceiroPage() {
                           >
                             <Eye className="w-4 h-4" />
                           </button>
+                        ) : (
+                          <span className="text-slate-400 text-[10px] font-medium font-mono">—</span>
                         )}
-                        <button 
-                          onClick={() => handleDeleteTransaction(tr.id)}
-                          title="Excluir Transação"
-                          className="text-slate-400 hover:text-rose-500 transition p-2 rounded-xl hover:bg-rose-500/10 inline-flex items-center justify-center"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
                       </td>
                     </tr>
                   ))
@@ -1001,53 +1256,51 @@ export default function FinanceiroPage() {
         </div>
       </div>
 
-      {/* MODAL DE DETALHES DO PEDIDO / VENDA (Tailwind Dark Theme) */}
+      {/* MODAL DE DETALHES DO PEDIDO / VENDA */}
       <AnimatePresence>
         {showSaleModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            {/* Backdrop com fechamento ao clicar fora */}
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setShowSaleModal(false)}
-              className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm"
+              className="absolute inset-0 bg-slate-900/60 dark:bg-slate-950/80 backdrop-blur-sm"
             />
 
-            {/* Container do Modal */}
             <motion.div 
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl overflow-hidden text-slate-100 max-h-[90vh] flex flex-col"
+              className="relative w-full max-w-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl overflow-hidden text-slate-900 dark:text-slate-100 max-h-[90vh] flex flex-col"
             >
-              {/* Header */}
-              <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-950/50">
+              {/* CABEÇALHO DO MODAL */}
+              <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-950/50">
                 <div>
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="px-2.5 py-0.5 rounded-full bg-orange-500/10 border border-orange-500/20 text-orange-400 text-[10px] font-black uppercase tracking-wider">
+                    <span className="px-2.5 py-0.5 rounded-full bg-orange-500/10 border border-orange-500/20 text-orange-600 dark:text-orange-400 text-[10px] font-black uppercase tracking-wider">
                       Resumo da Venda
                     </span>
                     {selectedSaleDetail?.is_mock && (
-                      <span className="px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-400 text-[10px] font-black uppercase tracking-wider">
+                      <span className="px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-[10px] font-black uppercase tracking-wider">
                         Detalhes Calculados
                       </span>
                     )}
                   </div>
-                  <h3 className="text-lg font-extrabold text-white flex items-center gap-2">
+                  <h3 className="text-lg font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
                     <Package className="w-5 h-5 text-orange-500" />
                     {loadingSaleDetail ? 'Carregando detalhes...' : selectedSaleDetail?.numero_pedido}
                   </h3>
                 </div>
                 <button 
                   onClick={() => setShowSaleModal(false)}
-                  className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition cursor-pointer"
+                  className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-400 hover:text-slate-900 dark:hover:text-white transition cursor-pointer"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
-              {/* Corpo */}
+              {/* CORPO DO MODAL */}
               <div className="p-6 overflow-y-auto space-y-6">
                 {loadingSaleDetail ? (
                   <div className="py-12 flex flex-col items-center justify-center gap-3">
@@ -1056,85 +1309,133 @@ export default function FinanceiroPage() {
                   </div>
                 ) : selectedSaleDetail ? (
                   <>
-                    {/* Informações Gerais */}
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="bg-slate-950/40 p-4 rounded-2xl border border-slate-800/80">
-                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Cliente</span>
-                        <span className="text-sm font-black text-white">{selectedSaleDetail.cliente}</span>
+                    {/* CÓDIGO DO PEDIDO, CLIENTE E PAGAMENTO */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div className="bg-slate-50 dark:bg-slate-950/50 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 flex items-center gap-3">
+                        <div className="p-2.5 rounded-xl bg-orange-500/10 text-orange-500">
+                          <Hash className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-0.5">Código do Pedido</span>
+                          <span className="text-xs font-black text-slate-900 dark:text-white">{selectedSaleDetail.numero_pedido}</span>
+                        </div>
                       </div>
-                      <div className="bg-slate-950/40 p-4 rounded-2xl border border-slate-800/80">
-                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Método de Pagamento</span>
-                        <span className="text-sm font-black text-orange-400 uppercase">{selectedSaleDetail.pagamento || 'PIX'}</span>
+
+                      <div className="bg-slate-50 dark:bg-slate-950/50 p-4 rounded-2xl border border-slate-200 dark:border-slate-800">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Cliente</span>
+                        <span className="text-xs font-black text-slate-900 dark:text-white">{selectedSaleDetail.cliente}</span>
+                      </div>
+
+                      <div className="bg-slate-50 dark:bg-slate-950/50 p-4 rounded-2xl border border-slate-200 dark:border-slate-800">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Método de Pagamento</span>
+                        <span className="text-xs font-black text-orange-500 uppercase">{selectedSaleDetail.pagamento || 'PIX'}</span>
                       </div>
                     </div>
 
-                    {/* Itens do Pedido */}
-                    <div className="bg-slate-950/40 p-5 rounded-2xl border border-slate-800/80 space-y-3">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Produtos Impressos</span>
-                      <div className="flex justify-between items-center py-2 border-b border-slate-800/50">
-                        <span className="text-xs font-bold text-slate-200">{selectedSaleDetail.produto}</span>
-                        <span className="text-xs font-black text-white bg-slate-800 px-2.5 py-1 rounded-lg">Qtd: {selectedSaleDetail.qtd}</span>
+                    {/* MODELO COMPRADO SELECIONADO DA LISTA (EXIBIÇÃO EM LINHA DE MÚLTIPLOS ITENS) */}
+                    <div className="bg-slate-50 dark:bg-slate-950/50 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-3">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                        Modelo Comprado Selecionado
+                      </span>
+                      
+                      <div className="space-y-2">
+                        {selectedSaleDetail.items && selectedSaleDetail.items.length > 0 ? (
+                          selectedSaleDetail.items.map((item: SaleItem, idx: number) => (
+                            <div 
+                              key={idx} 
+                              className="flex justify-between items-center py-2.5 bg-white dark:bg-slate-900 px-4 rounded-xl border border-slate-200 dark:border-slate-800"
+                            >
+                              <span className="text-xs font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                                <span className="w-2 h-2 rounded-full bg-orange-500 shrink-0 animate-pulse"></span>
+                                {item.nome}
+                              </span>
+                              <span className="text-xs font-black text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-lg shrink-0 border border-slate-200 dark:border-slate-700">
+                                Qtd: {item.qtd}
+                              </span>
+                            </div>
+                          ))
+                        ) : (
+                          <div className="flex justify-between items-center py-2.5 bg-white dark:bg-slate-900 px-4 rounded-xl border border-slate-200 dark:border-slate-800">
+                            <span className="text-xs font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                              <span className="w-2 h-2 rounded-full bg-orange-500 shrink-0 animate-pulse"></span>
+                              Modelo 3D Selecionado
+                            </span>
+                            <span className="text-xs font-black text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-lg shrink-0 border border-slate-200 dark:border-slate-700">
+                              Qtd: 1
+                            </span>
+                          </div>
+                        )}
                       </div>
                     </div>
 
-                    {/* Cards Técnicos de Impressão */}
                     <div className="grid grid-cols-2 gap-4">
-                      <div className="bg-slate-950/20 p-4 rounded-2xl border border-slate-800/50 flex items-center gap-3">
-                        <div className="p-3 rounded-xl bg-blue-500/10 text-blue-400">
+                      <div className="bg-slate-50 dark:bg-slate-950/50 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 flex items-center gap-3">
+                        <div className="p-3 rounded-xl bg-blue-500/10 text-blue-500">
                           <Gauge className="w-5 h-5" />
                         </div>
                         <div>
-                          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Peso Total Estimado</span>
-                          <span className="text-sm font-black text-white">{selectedSaleDetail.weight_g.toFixed(0)}g</span>
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Peso Total Estimado</span>
+                          <span className="text-sm font-black text-slate-900 dark:text-white">{selectedSaleDetail.weight_g.toFixed(0)}g</span>
                         </div>
                       </div>
 
-                      <div className="bg-slate-950/20 p-4 rounded-2xl border border-slate-800/50 flex items-center gap-3">
-                        <div className="p-3 rounded-xl bg-violet-500/10 text-violet-400">
+                      <div className="bg-slate-50 dark:bg-slate-950/50 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 flex items-center gap-3">
+                        <div className="p-3 rounded-xl bg-violet-500/10 text-violet-500">
                           <Clock className="w-5 h-5" />
                         </div>
                         <div>
-                          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Tempo de Máquina</span>
-                          <span className="text-sm font-black text-white">{selectedSaleDetail.print_time_hours.toFixed(1)}h</span>
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Tempo de Máquina</span>
+                          <span className="text-sm font-black text-slate-900 dark:text-white">{selectedSaleDetail.print_time_hours.toFixed(1)}h</span>
                         </div>
                       </div>
                     </div>
 
-                    {/* Resumo Financeiro */}
-                    <div className="bg-slate-950/60 p-5 rounded-2xl border border-slate-800 space-y-3">
+                    <div className="bg-slate-50 dark:bg-slate-950/80 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-3">
                       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Resumo Financeiro & Margens</span>
                       
                       <div className="space-y-2 text-xs">
-                        <div className="flex justify-between text-slate-400">
-                          <span>Faturamento Bruto</span>
-                          <span className="font-bold text-white">{formatCurrency(selectedSaleDetail.total)}</span>
+                        <div className="flex justify-between text-slate-500 dark:text-slate-400">
+                          <span>Subtotal Bruto</span>
+                          <span className="font-bold text-slate-900 dark:text-white">{formatCurrency(selectedSaleDetail.subtotal || selectedSaleDetail.total)}</span>
+                        </div>
+
+                        {selectedSaleDetail.desconto_pct > 0 && (
+                          <div className="flex justify-between text-slate-500 dark:text-slate-400">
+                            <span>Desconto Global ({selectedSaleDetail.desconto_pct}%)</span>
+                            <span className="font-bold text-emerald-500">-{formatCurrency(selectedSaleDetail.desconto_valor)}</span>
+                          </div>
+                        )}
+
+                        <div className="flex justify-between text-slate-500 dark:text-slate-400 font-extrabold border-t border-slate-200 dark:border-slate-800/60 pt-1">
+                          <span>Faturamento Bruto Final</span>
+                          <span className="text-slate-900 dark:text-white">{formatCurrency(selectedSaleDetail.total)}</span>
                         </div>
                         
-                        <div className="flex justify-between text-slate-400">
+                        <div className="flex justify-between text-slate-500 dark:text-slate-400">
                           <span>Taxa de Gateway / Maquininha</span>
                           <span className="font-bold text-rose-500">-{formatCurrency(selectedSaleDetail.gateway_fee)}</span>
                         </div>
 
-                        <div className="flex justify-between text-slate-400">
+                        <div className="flex justify-between text-slate-500 dark:text-slate-400">
                           <span>Impostos Estimados (6% Simples)</span>
                           <span className="font-bold text-rose-500">-{formatCurrency(selectedSaleDetail.taxes)}</span>
                         </div>
 
-                        <div className="flex justify-between text-slate-400 border-t border-slate-800 pt-2">
+                        <div className="flex justify-between text-slate-500 dark:text-slate-400 border-t border-slate-200 dark:border-slate-800 pt-2">
                           <span>Custo de Material Estimado</span>
                           <span className="font-bold text-amber-500">-{formatCurrency(selectedSaleDetail.material_cost)}</span>
                         </div>
 
-                        <div className="flex justify-between text-slate-400">
+                        <div className="flex justify-between text-slate-500 dark:text-slate-400">
                           <span>Depreciação & Energia Estimada</span>
                           <span className="font-bold text-amber-500">-{formatCurrency(selectedSaleDetail.machine_cost)}</span>
                         </div>
 
-                        <div className="flex justify-between text-sm font-black text-white border-t border-slate-800 pt-3">
+                        <div className="flex justify-between text-sm font-black text-slate-900 dark:text-white border-t border-slate-200 dark:border-slate-800 pt-3">
                           <span className="flex items-center gap-1.5">
                             <Percent className="w-4 h-4 text-emerald-500" /> Lucro Líquido Real
                           </span>
-                          <span className="text-emerald-400">{formatCurrency(selectedSaleDetail.net_profit)}</span>
+                          <span className="text-emerald-500">{formatCurrency(selectedSaleDetail.net_profit)}</span>
                         </div>
                       </div>
                     </div>
@@ -1144,11 +1445,11 @@ export default function FinanceiroPage() {
                 )}
               </div>
 
-              {/* Footer */}
-              <div className="p-4 border-t border-slate-800 bg-slate-950/30 flex justify-end">
+              {/* RODAPÉ DO MODAL */}
+              <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/30 flex justify-end">
                 <button 
                   onClick={() => setShowSaleModal(false)}
-                  className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold transition cursor-pointer"
+                  className="px-5 py-2.5 rounded-xl bg-slate-900 dark:bg-slate-800 hover:bg-slate-800 dark:hover:bg-slate-700 text-white text-xs font-bold transition cursor-pointer"
                 >
                   Fechar Detalhes
                 </button>

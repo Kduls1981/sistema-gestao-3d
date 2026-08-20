@@ -308,7 +308,18 @@ export default function DashboardPage() {
     return () => { supabase.removeChannel(channel) }
   }, [])
 
-  const saldoLiquido = totalReceitas - (totalSaidas + custosFixosMes)
+  // Carregamento inteligente e cruzamento de dados sem inconsistências
+  // 1. Filtrar as transações de receita do período atual
+  const transacoesReceitaPeriodo = transacoes.filter(t => {
+    const type = (t.type || t.tipo || '').toLowerCase()
+    return type === 'receita' || type === 'entrada' || type === 'income'
+  })
+
+  // 2. Totalizar as taxas de gateway reais pagas no período
+  const totalTaxasGateway = transacoesReceitaPeriodo.reduce((acc, curr) => acc + (Number(curr.payment_gateway_fee) || 0), 0)
+
+  // 3. Lucro Líquido Real deduzindo Custos Fixos, Despesas Variáveis e Taxas de Gateway
+  const saldoLiquido = totalReceitas - (totalSaidas + custosFixosMes + totalTaxasGateway)
   const margemLucro = totalReceitas > 0 ? ((saldoLiquido / totalReceitas) * 100).toFixed(1) : '0'
   const maxStockValue = 10000 // Capacidade total de 10.000g (10kg)
   const totalDesperdicioFalhas = falhasProducao.reduce((acc, f) => acc + (f.filament_wasted_g || 0), 0)
@@ -325,10 +336,46 @@ export default function DashboardPage() {
   const capacidadeHorasMaquinas = Math.max(pecas3dCount, 1) * 720
   const percentualOcupacaoCapacidade = Math.min(Math.round((totalHorasFila / capacidadeHorasMaquinas) * 100), 100)
 
+  // 4. Detalhamento comercial adicional para os novos KPIs
+  const ticketMedio = quantidadeVendasPeriodo > 0 ? (totalReceitas / quantidadeVendasPeriodo) : 0
+
+  // Meio de pagamento líder no período
+  const contagemPagamentos: Record<string, number> = {}
+  transacoesReceitaPeriodo.forEach(t => {
+    const metodo = t.payment_method || t.pagamento || 'Pix'
+    const cleanMetodo = metodo.toUpperCase().trim()
+    contagemPagamentos[cleanMetodo] = (contagemPagamentos[cleanMetodo] || 0) + 1
+  })
+  let meioPagamentoLider = 'Nenhum'
+  let maxVezes = 0
+  Object.entries(contagemPagamentos).forEach(([metodo, qtd]) => {
+    if (metodo && qtd > maxVezes) {
+      maxVezes = qtd
+      meioPagamentoLider = metodo
+    }
+  })
+
+  // 5. KPIs de Estoque: Valoração e Níveis Críticos
+  const valorTotalEstoque = estoqueItens.reduce((acc, item) => {
+    const precoKg = Number(item.price_per_kg) || 95
+    const pesoG = Number(item.stock_quantity_g) || 0
+    return acc + ((pesoG / 1000) * precoKg)
+  }, 0)
+  const bobinasCriticasCount = estoqueItens.filter(item => (item.stock_quantity_g || 0) <= 1000).length
+
+  // 6. KPIs de Qualidade: Taxa de falhas e prejuízo de insumo desperdiçado
+  // Custo médio de filamento por grama é R$ 0.10
+  const custoPerdaFalhas = totalDesperdicioFalhas * 0.095 
+  // Taxa de desperdício em relação ao estoque global em prateleira
+  const taxaFalhaPercentual = totalEstoqueG > 0 
+    ? Number(((totalDesperdicioFalhas / (totalEstoqueG + totalDesperdicioFalhas)) * 100).toFixed(1))
+    : 0
+
   const pieData = [
-    { name: 'Lucro Líquido', value: Math.max(saldoLiquido, 0), color: '#10b981' },
+    { name: 'Lucro Líquido Real', value: Math.max(saldoLiquido, 0), color: '#10b981' },
     { name: 'Custos Fixos', value: custosFixosMes, color: '#f59e0b' },
     { name: 'Saídas Variáveis', value: totalSaidas, color: '#f43f5e' },
+    { name: 'Taxas de Gateway', value: totalTaxasGateway, color: '#8b5cf6' },
   ]
 
   const containerVariants: Variants = {
@@ -588,6 +635,94 @@ export default function DashboardPage() {
           </div>
         </motion.div>
 
+      </motion.div>
+
+      {/* 📊 Seção de KPI's Setoriais (Informações em Tempo Real) */}
+      <motion.div variants={itemVariants} className="space-y-4">
+        <div className="flex items-center gap-2.5">
+          <Activity className="w-5 h-5 text-orange-500 animate-pulse" />
+          <h2 className="text-base font-black text-slate-900 dark:text-white">Desempenho por Setor (Cockpit Gerencial)</h2>
+        </div>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {/* Comercial */}
+          <div className="bg-white/80 dark:bg-[#1f262c]/80 backdrop-blur-xl border border-slate-200 dark:border-slate-800 p-5 rounded-3xl space-y-3 relative overflow-hidden group">
+            <span className="text-[10px] font-black uppercase tracking-wider text-orange-600 dark:text-orange-400 bg-orange-500/10 px-2 py-0.5 rounded-md">Comercial & Vendas</span>
+            <div className="space-y-2">
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-slate-400 font-medium">Ticket Médio</span>
+                <span className="font-extrabold text-white">{formatCurrency(ticketMedio)}</span>
+              </div>
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-slate-400 font-medium">Gateway Pago</span>
+                <span className="font-bold text-rose-400">-{formatCurrency(totalTaxasGateway)}</span>
+              </div>
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-slate-400 font-medium">Pagamento Líder</span>
+                <span className="font-black text-emerald-400 text-[10px] uppercase tracking-wider">{meioPagamentoLider}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Produção */}
+          <div className="bg-white/80 dark:bg-[#1f262c]/80 backdrop-blur-xl border border-slate-200 dark:border-slate-800 p-5 rounded-3xl space-y-3 relative overflow-hidden group">
+            <span className="text-[10px] font-black uppercase tracking-wider text-blue-600 dark:text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-md">Produção & Operações</span>
+            <div className="space-y-2">
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-slate-400 font-medium">Horas em Fila</span>
+                <span className="font-extrabold text-white">{totalHorasFila.toFixed(1)}h</span>
+              </div>
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-slate-400 font-medium">Fator Ocupação</span>
+                <span className="font-bold text-blue-400">{percentualOcupacaoCapacidade}%</span>
+              </div>
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-slate-400 font-medium">Itens na Fila</span>
+                <span className="font-black text-white">{totalItensFila} un.</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Estoque */}
+          <div className="bg-white/80 dark:bg-[#1f262c]/80 backdrop-blur-xl border border-slate-200 dark:border-slate-800 p-5 rounded-3xl space-y-3 relative overflow-hidden group">
+            <span className="text-[10px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-md">Estoque & Insumos</span>
+            <div className="space-y-2">
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-slate-400 font-medium">Valoração total</span>
+                <span className="font-extrabold text-white">{formatCurrency(valorTotalEstoque)}</span>
+              </div>
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-slate-400 font-medium">Volume Global</span>
+                <span className="font-bold text-white">{(totalEstoqueG / 1000).toFixed(2)}kg</span>
+              </div>
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-slate-400 font-medium">Nível Crítico (≤1kg)</span>
+                <span className={`font-black text-xs ${bobinasCriticasCount > 0 ? 'text-rose-500 animate-pulse' : 'text-slate-300'}`}>
+                  {bobinasCriticasCount} bobinas
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Qualidade */}
+          <div className="bg-white/80 dark:bg-[#1f262c]/80 backdrop-blur-xl border border-slate-200 dark:border-slate-800 p-5 rounded-3xl space-y-3 relative overflow-hidden group">
+            <span className="text-[10px] font-black uppercase tracking-wider text-rose-600 dark:text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded-md">Controle de Qualidade (QA)</span>
+            <div className="space-y-2">
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-slate-400 font-medium">Taxa de Desperdício</span>
+                <span className="font-extrabold text-white">{taxaFalhaPercentual}%</span>
+              </div>
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-slate-400 font-medium">Massa Desperdiçada</span>
+                <span className="font-bold text-white">{totalDesperdicioFalhas}g</span>
+              </div>
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-slate-400 font-medium">Prejuízo Acumulado</span>
+                <span className="font-black text-rose-400">{formatCurrency(custoPerdaFalhas)}</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </motion.div>
 
       {/* 📈 Seção de Gráficos Dinâmicos (Área vs Barras) */}
