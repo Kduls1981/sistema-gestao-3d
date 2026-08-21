@@ -341,7 +341,7 @@ export default function Produtos3DPage() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-sm">
+            <table className="w-full min-w-[800px] text-left border-collapse text-sm">
               <thead>
                 <tr className="bg-slate-50/80 border-b border-slate-200/80 text-slate-400 uppercase tracking-wider font-black text-xs">
                   <th className="p-6">Nome da Peça</th>

@@ -225,7 +225,7 @@ export default function ProducaoPage() {
           <div className="p-12 text-center text-slate-400">Nenhum produto encontrado.</div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm border-collapse">
+            <table className="w-full min-w-[1000px] text-left text-sm border-collapse">
               <thead>
                 <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50 text-slate-500 dark:text-slate-400 font-semibold text-xs uppercase tracking-wider">
                   <th className="p-4 pl-6">Produto</th>

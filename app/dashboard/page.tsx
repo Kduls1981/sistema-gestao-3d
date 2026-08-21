@@ -966,7 +966,7 @@ export default function DashboardPage() {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
+          <table className="w-full min-w-[600px] text-left text-sm">
             <thead>
               <tr className="border-b border-slate-100 dark:border-slate-800 text-slate-400 font-bold text-xs uppercase tracking-wider">
                 <th className="pb-3.5 w-32">Data</th>

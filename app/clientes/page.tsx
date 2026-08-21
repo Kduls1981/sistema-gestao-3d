@@ -201,7 +201,7 @@ function ClientesContent() {
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
+            <table className="w-full min-w-[650px] text-left border-collapse">
               <thead>
                 <tr className="bg-slate-50 dark:bg-slate-950 text-slate-400 text-xs font-black uppercase tracking-wider border-b border-slate-200 dark:border-slate-800">
                   <th className="p-4 pl-6">Cliente</th>
@@ -257,7 +257,7 @@ function ClientesContent() {
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
+            <table className="w-full min-w-[600px] text-left border-collapse">
               <thead>
                 <tr className="bg-slate-50 dark:bg-slate-950 text-slate-400 text-xs font-black uppercase tracking-wider border-b border-slate-200 dark:border-slate-800">
                   <th className="p-4 pl-6">Nome</th>

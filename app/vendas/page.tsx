@@ -395,8 +395,8 @@ export default function VendasPage() {
             {itensPedido.length > 0 && (
               <div className="space-y-3">
                 <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 uppercase">Itens Adicionados ({itensPedido.length})</label>
-                <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden">
-                  <table className="w-full text-left border-collapse text-xs">
+                <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-x-auto">
+                  <table className="w-full min-w-[550px] text-left border-collapse text-xs">
                     <thead>
                       <tr className="bg-slate-100 dark:bg-slate-950 font-bold text-slate-500 uppercase border-b border-slate-200 dark:border-slate-800">
                         <th className="py-2.5 px-3">Produto</th>
@@ -487,7 +487,7 @@ export default function VendasPage() {
         <h3 className="text-lg font-black text-slate-900 dark:text-white">Histórico de Pedidos e Vendas</h3>
         
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+          <table className="w-full min-w-[850px] text-left border-collapse">
             <thead>
               <tr className="border-b border-slate-200 dark:border-slate-800 text-xs font-black text-slate-400 uppercase">
                 <th className="py-3 px-4">Nº Pedido</th>
