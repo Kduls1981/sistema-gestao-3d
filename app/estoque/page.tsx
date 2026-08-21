@@ -103,6 +103,8 @@ function EstoqueContent() {
       const costPerGram = pricePerKg > 0 ? Number((pricePerKg / 1000).toFixed(4)) : (totalCost > 0 && stockQuantityG > 0 ? Number((totalCost / stockQuantityG).toFixed(4)) : 0)
       const finalPricePerKg = pricePerKg > 0 ? pricePerKg : (stockQuantityG > 0 ? (totalCost / stockQuantityG) * 1000 : 0)
 
+      const calculatedTotalCost = totalCost > 0 ? totalCost : (finalPricePerKg * stockQuantityG) / 1000
+
       const { error } = await supabase.from('inputs').insert([
         { 
           name, 
@@ -111,12 +113,28 @@ function EstoqueContent() {
           price_per_kg: finalPricePerKg, 
           cost_per_gram: costPerGram,
           stock_quantity_g: stockQuantityG,
-          total_cost: totalCost > 0 ? totalCost : (finalPricePerKg * stockQuantityG) / 1000,
+          total_cost: calculatedTotalCost,
           purchase_date: purchaseDate || null
         }
       ])
 
       if (error) throw error
+
+      // Lançamento financeiro automático da despesa
+      const todayString = new Date().toISOString().substring(0, 10)
+      await supabase.from('financial_transactions').insert([
+        {
+          date: purchaseDate || todayString,
+          type: 'Despesa',
+          category: 'Insumos / Filamentos (PLA, PETG, ABS)',
+          description: `Compra de Insumo: ${name} (${brand} - ${type.toUpperCase()})`,
+          amount: Number(calculatedTotalCost.toFixed(2)),
+          status: 'Concluído',
+          payment_method: 'Pix',
+          payment_status: 'paid',
+          due_date: purchaseDate || todayString
+        }
+      ])
 
       setName('')
       setBrand('')

@@ -100,6 +100,7 @@ export default function ProducaoPage() {
     const newStock = success ? currentStock + 1 : currentStock
 
     try {
+      // 1. Atualizar o produto 3D (fila de produção e estoque pronto)
       const { error } = await supabase
         .from('products_3d')
         .update({
@@ -110,6 +111,42 @@ export default function ProducaoPage() {
         .eq('id', prod.id)
 
       if (error) throw error
+
+      // 2. Deduzir filamento do estoque (inputs)
+      const filType = (prod.filament_type || 'PLA').toUpperCase()
+      const pieceWeight = prod.weight_g || 0
+
+      if (pieceWeight > 0) {
+        const { data: matchedInputs } = await supabase
+          .from('inputs')
+          .select('*')
+          .ilike('type', filType)
+          .gt('stock_quantity_g', 0)
+          .order('stock_quantity_g', { ascending: false })
+
+        if (matchedInputs && matchedInputs.length > 0) {
+          const chosenInput = matchedInputs[0]
+          const currentQty = chosenInput.stock_quantity_g || 0
+          const newQty = Math.max(0, currentQty - pieceWeight)
+
+          await supabase
+            .from('inputs')
+            .update({ stock_quantity_g: newQty })
+            .eq('id', chosenInput.id)
+        }
+      }
+
+      // 3. Se for falha, registrar na tabela de desperdícios/falhas
+      if (!success) {
+        await supabase
+          .from('production_failures')
+          .insert([
+            {
+              product_name: prod.name,
+              filament_wasted_g: pieceWeight
+            }
+          ])
+      }
 
       setProducts(products.map(p => p.id === prod.id ? {
         ...p,
@@ -144,7 +181,7 @@ export default function ProducaoPage() {
         </div>
 
         <Link
-          href="/produtos-3d"
+          href="/projetos"
           className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white dark:bg-slate-100 dark:hover:bg-slate-200 dark:text-slate-900 rounded-xl text-sm font-bold transition shadow-sm"
         >
           ← Voltar para Cadastro de Produtos

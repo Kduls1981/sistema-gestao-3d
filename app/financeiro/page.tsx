@@ -66,11 +66,15 @@ type Product3D = {
   name: string
   category: string
   suggested_price: number
+  weight_g?: number
+  print_time_hours?: number
 }
 
 type SaleItem = {
   nome: string
   qtd: number
+  qtdEstoqueUtilizada?: number
+  qtdIndoParaProducao?: number
 }
 
 const CATEGORIAS_RECEITA = [
@@ -165,7 +169,7 @@ export default function FinanceiroPage() {
       const { data: transData } = await supabase.from('financial_transactions').select('*').order('date', { ascending: false })
       if (transData) setTransactions(transData)
 
-      const { data: productsData } = await supabase.from('products_3d').select('id, name, category, suggested_price').order('name', { ascending: true })
+      const { data: productsData } = await supabase.from('products_3d').select('id, name, category, suggested_price, weight_g, print_time_hours').order('name', { ascending: true })
       if (productsData) setProducts3D(productsData)
 
     } catch (error: any) {
@@ -225,6 +229,8 @@ export default function FinanceiroPage() {
   const avgFilamentPriceGram = 0.12 
   const breakEvenHours = totalFixedCosts > 0 ? totalFixedCosts / avgHourlyRate : 0
   const breakEvenGrams = totalFixedCosts > 0 ? totalFixedCosts / avgFilamentPriceGram : 0
+  const breakEvenProgress = breakEvenReais > 0 ? Math.min(100, (totalReceitas / breakEvenReais) * 100) : 0
+  const realPercentage = breakEvenReais > 0 ? (totalReceitas / breakEvenReais) * 100 : 0
 
   const handleViewSaleDetail = async (tr: Transaction) => {
     try {
@@ -311,12 +317,16 @@ export default function FinanceiroPage() {
       if (Array.isArray(saleData.itens) && saleData.itens.length > 0) {
         itemsList = saleData.itens.map((it: any) => ({
           nome: it.nome || it.produto || it.name || 'Modelo 3D',
-          qtd: Number(it.qtd || it.quantidade || 1)
+          qtd: Number(it.qtd || it.quantidade || 1),
+          qtdEstoqueUtilizada: Number(it.qtdEstoqueUtilizada || 0),
+          qtdIndoParaProducao: Number(it.qtdIndoParaProducao || 0)
         }))
       } else if (Array.isArray(saleData.items) && saleData.items.length > 0) {
         itemsList = saleData.items.map((it: any) => ({
           nome: it.nome || it.produto || it.name || 'Modelo 3D',
-          qtd: Number(it.qtd || it.quantidade || 1)
+          qtd: Number(it.qtd || it.quantidade || 1),
+          qtdEstoqueUtilizada: Number(it.qtdEstoqueUtilizada || 0),
+          qtdIndoParaProducao: Number(it.qtdIndoParaProducao || 0)
         }))
       } else {
         const rawProdStr = saleData.produto || saleData.modelo_comprado || saleData.modelo_selecionado || saleData.nome_modelo || tr.description
@@ -330,23 +340,55 @@ export default function FinanceiroPage() {
             const matchQtd = part.match(/\(Qtd:\s*(\d+)\)/i) || part.match(/x\s*(\d+)/i) || part.match(/^(\d+)x/i)
             const q = matchQtd ? Number(matchQtd[1]) : Number(saleData.qtd || 1)
             const n = part.replace(/\(Qtd:\s*\d+\)/i, '').replace(/x\s*\d+/i, '').replace(/^\d+x/i, '').trim()
-            return { nome: n || 'Modelo 3D Selecionado', qtd: q }
+            
+            const isProd = saleData.em_producao || saleData.emProducao || false
+            return { 
+              nome: n || 'Modelo 3D Selecionado', 
+              qtd: q,
+              qtdEstoqueUtilizada: isProd ? 0 : q,
+              qtdIndoParaProducao: isProd ? q : 0
+            }
           })
         } else {
           const quantidadeFinal = Number(saleData.qtd || saleData.quantidade || 1)
           const nomeLimpo = cleanProdStr.replace(/^Venda:\s*/i, '').replace(/\(Qtd:\s*\d+\)/i, '').trim()
-          itemsList = [{ nome: nomeLimpo || 'Modelo 3D Selecionado', qtd: quantidadeFinal }]
+          
+          const isProd = saleData.em_producao || saleData.emProducao || false
+          itemsList = [{ 
+            nome: nomeLimpo || 'Modelo 3D Selecionado', 
+            qtd: quantidadeFinal,
+            qtdEstoqueUtilizada: isProd ? 0 : quantidadeFinal,
+            qtdIndoParaProducao: isProd ? quantidadeFinal : 0
+          }]
         }
       }
 
-      const totalQtdItems = itemsList.reduce((acc, item) => acc + item.qtd, 0)
-      let weightG = 45 * totalQtdItems
-      let printTimeHours = 3 * totalQtdItems
+      let weightG = 0
+      let printTimeHours = 0
+      let lifetimePrintTimeHours = 0
+
+      itemsList.forEach((item) => {
+        // Encontra as especificações reais de peso e tempo de máquina cadastrados
+        const spec = products3D.find(p => p.name.toLowerCase() === item.nome.toLowerCase())
+        const itemWeight = spec?.weight_g ? Number(spec.weight_g) : 45 // fallback de 45g
+        const itemPrintTime = spec?.print_time_hours ? Number(spec.print_time_hours) : 3 // fallback de 3h
+
+        // Peso total engloba tudo que foi vendido
+        weightG += itemWeight * item.qtd
+
+        // Tempo operacional de máquina (para as impressoras trabalharem agora)
+        const qtyToPrint = item.qtdIndoParaProducao !== undefined ? item.qtdIndoParaProducao : item.qtd
+        printTimeHours += itemPrintTime * qtyToPrint
+
+        // Tempo total acumulado de fabricação (para custos reais de energia e depreciação)
+        lifetimePrintTimeHours += itemPrintTime * item.qtd
+      })
 
       const gatewayFee = tr.payment_gateway_fee || 0
       const taxes = totalFinal * 0.06
       const materialCost = weightG * 0.09 
-      const machineCost = printTimeHours * 1.20 
+      // O custo de máquina (energia e desgaste) contabiliza todas as peças vendidas, mantendo o lucro líquido real e realista
+      const machineCost = lifetimePrintTimeHours * 1.20 
       const netProfit = totalFinal - gatewayFee - taxes - materialCost - machineCost
 
       setSelectedSaleDetail({
@@ -667,6 +709,28 @@ export default function FinanceiroPage() {
           <div className="space-y-1">
             <span className="text-slate-400 text-[10px] uppercase font-bold tracking-wider">Faturamento Mínimo Necessário</span>
             <div className="text-2xl font-black text-white">{formatCurrency(breakEvenReais)}</div>
+
+            {/* PROGRESS / LOADING BAR */}
+            <div className="space-y-1.5 pt-2 border-t border-slate-800/40">
+              <div className="flex justify-between items-center text-[10px] font-bold text-slate-400">
+                <span>Progresso: {breakEvenProgress.toFixed(1)}%</span>
+                <span className="font-mono">{formatCurrency(totalReceitas)} faturados</span>
+              </div>
+              <div className="w-full bg-slate-800/80 h-2 rounded-full overflow-hidden border border-slate-800/60 relative">
+                <div 
+                  className="bg-gradient-to-r from-orange-500 to-amber-500 h-full rounded-full transition-all duration-500" 
+                  style={{ width: `${breakEvenProgress}%` }}
+                />
+              </div>
+              
+              {/* CONDITIONAL badge when faturamento exceeds 100% (superávit / lucro) */}
+              {realPercentage > 100 && (
+                <div className="flex items-center gap-1.5 pt-1 text-[10px] font-black text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-xl border border-emerald-500/20 w-max animate-pulse">
+                  <TrendingUp className="w-3.5 h-3.5" />
+                  <span>Superávit: {realPercentage.toFixed(0)}% do Custo Fixo (+{(realPercentage - 100).toFixed(0)}%)</span>
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-800">
@@ -1333,40 +1397,52 @@ export default function FinanceiroPage() {
                     </div>
 
                     {/* MODELO COMPRADO SELECIONADO DA LISTA (EXIBIÇÃO EM LINHA DE MÚLTIPLOS ITENS) */}
-                    <div className="bg-slate-50 dark:bg-slate-950/50 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-3">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                        Modelo Comprado Selecionado
-                      </span>
-                      
-                      <div className="space-y-2">
-                        {selectedSaleDetail.items && selectedSaleDetail.items.length > 0 ? (
-                          selectedSaleDetail.items.map((item: SaleItem, idx: number) => (
-                            <div 
-                              key={idx} 
-                              className="flex justify-between items-center py-2.5 bg-white dark:bg-slate-900 px-4 rounded-xl border border-slate-200 dark:border-slate-800"
-                            >
+                      <div className="bg-slate-50 dark:bg-slate-950/50 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-3">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                          Modelos Comprados e Fila de Fabricação
+                        </span>
+                        
+                        <div className="space-y-2">
+                          {selectedSaleDetail.items && selectedSaleDetail.items.length > 0 ? (
+                            selectedSaleDetail.items.map((item: SaleItem, idx: number) => (
+                              <div 
+                                key={idx} 
+                                className="flex flex-col sm:flex-row justify-between sm:items-center gap-2 py-2.5 bg-white dark:bg-slate-900 px-4 rounded-xl border border-slate-200 dark:border-slate-800"
+                              >
+                                <span className="text-xs font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                                  <span className="w-2 h-2 rounded-full bg-orange-500 shrink-0 animate-pulse"></span>
+                                  {item.nome}
+                                </span>
+                                <div className="flex flex-wrap gap-1.5 items-center">
+                                  {item.qtdEstoqueUtilizada !== undefined && item.qtdEstoqueUtilizada > 0 && (
+                                    <span className="text-[9px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20 whitespace-nowrap">
+                                      Pronta Entrega: {item.qtdEstoqueUtilizada} un.
+                                    </span>
+                                  )}
+                                  {item.qtdIndoParaProducao !== undefined && item.qtdIndoParaProducao > 0 && (
+                                    <span className="text-[9px] font-bold text-amber-700 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20 whitespace-nowrap">
+                                      Fila Produção: {item.qtdIndoParaProducao} un.
+                                    </span>
+                                  )}
+                                  <span className="text-xs font-black text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-2.5 py-0.5 rounded-lg shrink-0 border border-slate-200 dark:border-slate-700">
+                                    Qtd: {item.qtd}
+                                  </span>
+                                </div>
+                              </div>
+                            ))
+                          ) : (
+                            <div className="flex justify-between items-center py-2.5 bg-white dark:bg-slate-900 px-4 rounded-xl border border-slate-200 dark:border-slate-800">
                               <span className="text-xs font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                                 <span className="w-2 h-2 rounded-full bg-orange-500 shrink-0 animate-pulse"></span>
-                                {item.nome}
+                                Modelo 3D Selecionado
                               </span>
                               <span className="text-xs font-black text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-lg shrink-0 border border-slate-200 dark:border-slate-700">
-                                Qtd: {item.qtd}
+                                Qtd: 1
                               </span>
                             </div>
-                          ))
-                        ) : (
-                          <div className="flex justify-between items-center py-2.5 bg-white dark:bg-slate-900 px-4 rounded-xl border border-slate-200 dark:border-slate-800">
-                            <span className="text-xs font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                              <span className="w-2 h-2 rounded-full bg-orange-500 shrink-0 animate-pulse"></span>
-                              Modelo 3D Selecionado
-                            </span>
-                            <span className="text-xs font-black text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-lg shrink-0 border border-slate-200 dark:border-slate-700">
-                              Qtd: 1
-                            </span>
-                          </div>
-                        )}
+                          )}
+                        </div>
                       </div>
-                    </div>
 
                     <div className="grid grid-cols-2 gap-4">
                       <div className="bg-slate-50 dark:bg-slate-950/50 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 flex items-center gap-3">

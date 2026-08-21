@@ -175,31 +175,33 @@ export default function VendasPage() {
 
       // Tenta persistir no Supabase (tabela sales) primeiro para obter o id da venda
       let saleId: any = null
-      let salesResult: any = null
+      
+      const salesResult = await supabase
+        .from('sales')
+        .insert([{
+          numero_pedido: numeroPedidoGerado,
+          cliente: cliente,
+          produto: nomeProdutoHistorico,
+          qtd: qtdTotalItens,
+          total: valorTotalFinal,
+          pagamento: formaPagamento.toUpperCase(),
+          status: statusHistorico,
+          em_producao: temItensEmProducao,
+          fila_iniciada: !temItensEmProducao,
+          itens: itensPedido.map(item => ({
+            nome: item.nomeProduto,
+            qtd: item.quantidade,
+            qtdEstoqueUtilizada: item.qtdEstoqueUtilizada || 0,
+            qtdIndoParaProducao: item.qtdIndoParaProducao || 0
+          }))
+        }])
+        .select()
 
-      try {
-        salesResult = await supabase
-          .from('sales')
-          .insert([{
-            numero_pedido: numeroPedidoGerado,
-            cliente: cliente,
-            produto: nomeProdutoHistorico,
-            qtd: qtdTotalItens,
-            total: valorTotalFinal,
-            pagamento: formaPagamento.toUpperCase(),
-            status: statusHistorico,
-            em_producao: temItensEmProducao,
-            fila_iniciada: !temItensEmProducao
-          }])
-          .select()
-
-        if (salesResult?.error) {
-          console.warn('Erro na inserção do Supabase em sales:', salesResult.error)
-        } else {
-          saleId = salesResult?.data?.[0]?.id || null
-        }
-      } catch (errSales) {
-        console.warn('Erro ao inserir venda no Supabase:', errSales)
+      if (salesResult.error) {
+        console.error('Erro na inserção do Supabase em sales:', salesResult.error)
+        throw new Error(`Erro ao salvar pedido no banco: ${salesResult.error.message}`)
+      } else {
+        saleId = salesResult?.data?.[0]?.id || null
       }
 
       const novaVendaObjeto = {
@@ -213,6 +215,12 @@ export default function VendasPage() {
         status: statusHistorico,
         emProducao: temItensEmProducao,
         filaIniciada: !temItensEmProducao || false,
+        itens: itensPedido.map(item => ({
+          nome: item.nomeProduto,
+          qtd: item.quantidade,
+          qtdEstoqueUtilizada: item.qtdEstoqueUtilizada || 0,
+          qtdIndoParaProducao: item.qtdIndoParaProducao || 0
+        })),
         data: agora.toLocaleDateString('pt-BR'),
         hora: agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
       }
@@ -229,7 +237,7 @@ export default function VendasPage() {
       }
 
       // Inserção no Financeiro com associação de sale_id, quantidade de itens e taxa de gateway
-      await supabase
+      const financeResult = await supabase
         .from('financial_transactions')
         .insert([{
           date: yyyymmdd,
@@ -245,6 +253,11 @@ export default function VendasPage() {
           quantity: qtdTotalItens,
           sale_id: saleId
         }])
+
+      if (financeResult.error) {
+        console.error('Erro ao inserir transação financeira:', financeResult.error)
+        throw new Error(`Erro ao lançar transação financeira: ${financeResult.error.message}`)
+      }
 
       // Atualiza o estado da lista local
       setVendasRecentes(prev => [novaVendaObjeto, ...prev])
