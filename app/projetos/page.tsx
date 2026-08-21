@@ -220,7 +220,7 @@ export default function Produtos3DPage() {
   const totalCatalogValue = products.reduce((acc, p) => acc + ((p.stock_ready || 0) * p.suggested_price), 0)
 
   return (
-    <div className="space-y-8 w-full pb-16 max-w-7xl mx-auto">
+    <div className="space-y-8 w-full pb-16 max-w-[1600px] mx-auto">
       
       {/* HEADER PRINCIPAL */}
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 bg-white/80 backdrop-blur-xl p-8 rounded-3xl border border-slate-200/80 shadow-sm">

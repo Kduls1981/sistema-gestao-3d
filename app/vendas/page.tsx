@@ -281,7 +281,7 @@ export default function VendasPage() {
   const inputDisabledStyle = "w-full bg-slate-100/80 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl px-4 py-3 text-sm font-bold text-slate-700 dark:text-slate-300 cursor-not-allowed shadow-sm"
 
   return (
-    <div className="space-y-8 pb-12 max-w-7xl mx-auto w-full">
+    <div className="space-y-8 pb-12 max-w-[1600px] mx-auto w-full">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white/90 dark:bg-slate-900 backdrop-blur-xl p-6 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-sm">
         <div>
           <span className="text-xs font-black uppercase tracking-wider text-orange-600 dark:text-orange-400 bg-orange-500/10 px-3 py-1 rounded-full border border-orange-500/20">

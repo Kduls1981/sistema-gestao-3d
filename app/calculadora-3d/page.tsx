@@ -126,7 +126,7 @@ function CalculadoraContent() {
   }
 
   return (
-    <div className="space-y-6 max-w-none w-full pb-16 px-4 sm:px-6">
+    <div className="space-y-6 max-w-[1600px] mx-auto w-full pb-16 px-4 sm:px-6">
       
       {/* HEADER EXECUTIVO REFINADO */}
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">

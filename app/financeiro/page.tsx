@@ -609,7 +609,7 @@ export default function FinanceiroPage() {
       initial={{ opacity: 0, y: 15 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, ease: "easeOut" }}
-      className="space-y-6 w-full pb-16 px-4 sm:px-6 lg:px-8"
+      className="space-y-6 max-w-[1600px] mx-auto w-full pb-16 px-4 sm:px-6 lg:px-8"
     >
       
       {/* HEADER EXECUTIVO */}
@@ -695,37 +695,40 @@ export default function FinanceiroPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
         {/* CARD BREAK-EVEN DE IMPRESSÃO */}
-        <div className="bg-gradient-to-br from-slate-900 to-slate-950 p-6 rounded-3xl border border-slate-800 text-white space-y-4 shadow-md relative overflow-hidden">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-2">
-              <Target className="w-5 h-5 text-orange-500" />
-              <h3 className="text-xs font-black uppercase tracking-wider text-slate-300">Ponto de Equilíbrio (Break-Even)</h3>
+        <div className="bg-slate-900 dark:bg-[#0f1420] p-6 rounded-3xl border border-slate-800 text-white space-y-5 shadow-2xl relative overflow-hidden group hover:-translate-y-1 hover:border-orange-500/30 transition-all duration-300">
+          <div className="absolute top-[-20%] right-[-10%] w-[120px] h-[120px] rounded-full bg-orange-500/10 blur-[40px] pointer-events-none" />
+          <div className="flex justify-between items-center relative z-10">
+            <div className="flex items-center gap-2.5">
+              <span className="p-2 rounded-xl bg-orange-500/10 text-orange-400">
+                <Target className="w-4 h-4" />
+              </span>
+              <h3 className="text-xs font-black uppercase tracking-widest text-slate-300">Break-Even</h3>
             </div>
-            <span className="px-2.5 py-1 rounded-full bg-orange-500/10 text-orange-400 border border-orange-500/20 text-[10px] font-black">
+            <span className="px-3 py-1 rounded-full bg-white/5 border border-white/10 text-[9px] font-black uppercase tracking-wider text-slate-400">
               {selectedMonth}
             </span>
           </div>
 
-          <div className="space-y-1">
-            <span className="text-slate-400 text-[10px] uppercase font-bold tracking-wider">Faturamento Mínimo Necessário</span>
-            <div className="text-2xl font-black text-white">{formatCurrency(breakEvenReais)}</div>
+          <div className="space-y-1.5 relative z-10">
+            <span className="text-slate-400 text-[10px] uppercase font-bold tracking-widest block">Faturamento Mínimo</span>
+            <div className="text-3xl font-black text-white tracking-tight">{formatCurrency(breakEvenReais)}</div>
 
             {/* PROGRESS / LOADING BAR */}
-            <div className="space-y-1.5 pt-2 border-t border-slate-800/40">
+            <div className="space-y-2 pt-3 border-t border-white/5">
               <div className="flex justify-between items-center text-[10px] font-bold text-slate-400">
-                <span>Progresso: {breakEvenProgress.toFixed(1)}%</span>
-                <span className="font-mono">{formatCurrency(totalReceitas)} faturados</span>
+                <span>Progresso Real: <strong className="text-orange-400">{breakEvenProgress.toFixed(1)}%</strong></span>
+                <span className="font-mono text-[9px]">{formatCurrency(totalReceitas)} faturados</span>
               </div>
-              <div className="w-full bg-slate-800/80 h-2 rounded-full overflow-hidden border border-slate-800/60 relative">
+              <div className="w-full bg-white/5 h-2.5 rounded-full overflow-hidden border border-white/10 relative p-0.5">
                 <div 
-                  className="bg-gradient-to-r from-orange-500 to-amber-500 h-full rounded-full transition-all duration-500" 
+                  className="bg-gradient-to-r from-orange-500 to-amber-500 h-full rounded-full transition-all duration-500 shadow-[0_0_12px_rgba(249,115,22,0.5)]" 
                   style={{ width: `${breakEvenProgress}%` }}
                 />
               </div>
               
               {/* CONDITIONAL badge when faturamento exceeds 100% (superávit / lucro) */}
               {realPercentage > 100 && (
-                <div className="flex items-center gap-1.5 pt-1 text-[10px] font-black text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-xl border border-emerald-500/20 w-max animate-pulse">
+                <div className="flex items-center gap-1.5 pt-1.5 text-[10px] font-black text-emerald-400 bg-emerald-500/10 px-3 py-1.5 rounded-xl border border-emerald-500/20 w-max animate-pulse">
                   <TrendingUp className="w-3.5 h-3.5" />
                   <span>Superávit: {realPercentage.toFixed(0)}% do Custo Fixo (+{(realPercentage - 100).toFixed(0)}%)</span>
                 </div>
@@ -733,86 +736,107 @@ export default function FinanceiroPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-800">
-            <div className="bg-slate-900/80 p-3 rounded-2xl border border-slate-800 flex items-center gap-2.5">
-              <Clock className="w-4 h-4 text-violet-400" />
+          <div className="grid grid-cols-2 gap-3 pt-3 border-t border-white/5 relative z-10">
+            <div className="bg-white/5 p-3 rounded-2xl border border-white/5 flex items-center gap-3 hover:bg-white/10 transition-colors">
+              <Clock className="w-4 h-4 text-violet-400 shrink-0" />
               <div>
-                <span className="text-[9px] text-slate-400 uppercase font-bold block">Horas Mínimas</span>
-                <span className="text-xs font-black text-white">{breakEvenHours.toFixed(0)} horas/mês</span>
+                <span className="text-[9px] text-slate-400 uppercase font-black block tracking-wider">Horas Mínimas</span>
+                <span className="text-xs font-black text-white">{breakEvenHours.toFixed(0)}h / mês</span>
               </div>
             </div>
 
-            <div className="bg-slate-900/80 p-3 rounded-2xl border border-slate-800 flex items-center gap-2.5">
-              <Gauge className="w-4 h-4 text-blue-400" />
+            <div className="bg-white/5 p-3 rounded-2xl border border-white/5 flex items-center gap-3 hover:bg-white/10 transition-colors">
+              <Gauge className="w-4 h-4 text-blue-400 shrink-0" />
               <div>
-                <span className="text-[9px] text-slate-400 uppercase font-bold block">Material Mínimo</span>
-                <span className="text-xs font-black text-white">{(breakEvenGrams / 1000).toFixed(1)} kg filamento</span>
+                <span className="text-[9px] text-slate-400 uppercase font-black block tracking-wider">Material</span>
+                <span className="text-xs font-black text-white">{(breakEvenGrams / 1000).toFixed(1)} kg</span>
               </div>
             </div>
           </div>
         </div>
 
         {/* CARD DE METRICAS DE VENDAS */}
-        <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 space-y-4 shadow-sm">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-2">
-              <BarChart3 className="w-5 h-5 text-emerald-500" />
-              <h3 className="text-xs font-black uppercase tracking-wider text-slate-400">Indicadores de Venda</h3>
+        <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-6 rounded-3xl border border-slate-200/50 dark:border-slate-800/50 space-y-5 shadow-2xl relative overflow-hidden group hover:-translate-y-1 hover:border-emerald-500/30 transition-all duration-300">
+          <div className="absolute top-[-20%] right-[-10%] w-[120px] h-[120px] rounded-full bg-emerald-500/5 blur-[40px] pointer-events-none" />
+          <div className="flex justify-between items-center relative z-10">
+            <div className="flex items-center gap-2.5">
+              <span className="p-2 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                <BarChart3 className="w-4 h-4" />
+              </span>
+              <h3 className="text-xs font-black uppercase tracking-widest text-slate-500 dark:text-slate-400">Indicadores de Venda</h3>
             </div>
-            <span className="px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 text-[10px] font-black">
+            <span className="px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[9px] font-black uppercase tracking-wider">
               {vendasTrans.length} Pedidos
             </span>
           </div>
 
-          <div className="grid grid-cols-2 gap-4 pt-2">
+          <div className="grid grid-cols-2 gap-4 pt-2 relative z-10">
             <div className="space-y-1">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Ticket Médio</span>
-              <span className="text-xl font-black text-slate-900 dark:text-white">{formatCurrency(ticketMedio)}</span>
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Ticket Médio</span>
+              <span className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">{formatCurrency(ticketMedio)}</span>
             </div>
 
             <div className="space-y-1">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Margem Líquida</span>
-              <span className={`text-xl font-black ${margemLiquidaPct >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Margem Líquida</span>
+              <span className={`text-2xl font-black tracking-tight ${margemLiquidaPct >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
                 {margemLiquidaPct.toFixed(1)}%
               </span>
             </div>
           </div>
 
-          <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-2 overflow-hidden mt-2">
-            <div 
-              className={`h-full rounded-full ${margemLiquidaPct >= 0 ? 'bg-emerald-500' : 'bg-rose-500'}`} 
-              style={{ width: `${Math.min(Math.max(margemLiquidaPct, 5), 100)}%` }}
-            />
+          <div className="space-y-2 relative z-10 pt-1">
+            <div className="w-full bg-slate-100 dark:bg-slate-800/80 h-2.5 rounded-full overflow-hidden p-0.5 border border-slate-200/40 dark:border-slate-700/40">
+              <div 
+                className={`h-full rounded-full transition-all duration-500 shadow-[0_0_8px_rgba(16,185,129,0.4)] ${margemLiquidaPct >= 0 ? 'bg-gradient-to-r from-emerald-500 to-teal-500' : 'bg-gradient-to-r from-rose-500 to-red-500 shadow-[0_0_8px_rgba(244,63,94,0.4)]'}`} 
+                style={{ width: `${Math.min(Math.max(margemLiquidaPct, 5), 100)}%` }}
+              />
+            </div>
+            <span className="text-[9px] text-slate-400 dark:text-slate-500 font-medium block">
+              {margemLiquidaPct >= 0 
+                ? 'Operação lucrativa após deduzir custos fixos e taxas.' 
+                : 'Margem negativa: faturamento atual abaixo do ponto de equilíbrio geral.'}
+            </span>
           </div>
         </div>
 
         {/* CARD DE SAÚDE FINANCEIRA */}
-        <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 space-y-3 shadow-sm flex flex-col justify-between">
-          <div className="flex items-center gap-2">
-            <Zap className="w-5 h-5 text-amber-500" />
-            <h3 className="text-xs font-black uppercase tracking-wider text-slate-400">Eficiência Financeira</h3>
-          </div>
-
-          <div className="space-y-2">
-            <div className="flex justify-between text-xs">
-              <span className="text-slate-500">Comprometimento com Custo Fixo:</span>
-              <span className="font-bold text-slate-900 dark:text-white">
-                {totalReceitas > 0 ? ((totalFixedCosts / totalReceitas) * 100).toFixed(1) : 0}%
+        <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-6 rounded-3xl border border-slate-200/50 dark:border-slate-800/50 space-y-4 shadow-2xl flex flex-col justify-between group hover:-translate-y-1 hover:border-amber-500/30 transition-all duration-300">
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <span className="p-2 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                  <Zap className="w-4 h-4" />
+                </span>
+                <h3 className="text-xs font-black uppercase tracking-widest text-slate-500 dark:text-slate-400">Eficiência</h3>
+              </div>
+              <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider ${balancoLiquido >= 0 ? 'bg-emerald-500/10 text-emerald-500' : 'bg-rose-500/10 text-rose-500'}`}>
+                {balancoLiquido >= 0 ? 'Positivo' : 'Alerta'}
               </span>
             </div>
-            <div className="flex justify-between text-xs">
-              <span className="text-slate-500">Custo Operacional Variável:</span>
-              <span className="font-bold text-slate-900 dark:text-white">
-                {totalReceitas > 0 ? ((totalDespesas / totalReceitas) * 100).toFixed(1) : 0}%
-              </span>
+
+            <div className="space-y-2.5">
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-slate-400 font-medium">Comprometimento Fixo:</span>
+                <span className="font-extrabold text-slate-900 dark:text-white">
+                  {totalReceitas > 0 ? ((totalFixedCosts / totalReceitas) * 100).toFixed(1) : 0}%
+                </span>
+              </div>
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-slate-400 font-medium">Custo Operacional Var.:</span>
+                <span className="font-extrabold text-slate-900 dark:text-white">
+                  {totalReceitas > 0 ? ((totalDespesas / totalReceitas) * 100).toFixed(1) : 0}%
+                </span>
+              </div>
             </div>
           </div>
 
-          <p className="text-[10px] text-slate-400 bg-slate-50 dark:bg-slate-950 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800">
-            {balancoLiquido >= 0 
-              ? `🟢 Em ${selectedMonth}, sua operação está cobrindo a estrutura e gerando caixa positivo.` 
-              : `🔴 Em ${selectedMonth}, a receita do mês não cobre totalmente os custos fixos da oficina.`}
-          </p>
+          <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800/50">
+            <p className="text-[10px] text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-950/50 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/80 leading-relaxed font-medium">
+              {balancoLiquido >= 0 
+                ? `🟢 Em ${selectedMonth}, sua operação está cobrindo a estrutura e gerando caixa positivo.` 
+                : `🔴 Em ${selectedMonth}, a receita do mês não cobre totalmente os custos fixos da oficina.`}
+            </p>
+          </div>
         </div>
 
       </div>

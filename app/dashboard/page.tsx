@@ -238,32 +238,25 @@ export default function DashboardPage() {
           })
           setChartData(dinamicoAno)
         } else if (periodo === 'Mes') {
-          const dinamicoMes = [
-            { name: 'Sem 1', maxDia: 7 },
-            { name: 'Sem 2', maxDia: 14 },
-            { name: 'Sem 3', maxDia: 21 },
-            { name: 'Sem 4', maxDia: qtdDiasMesAtual },
-          ].map((semana, idx, arr) => {
-            const minD = idx === 0 ? 1 : arr[idx - 1].maxDia + 1
-            const maxD = semana.maxDia
-
-            const recSem = receitasFiltered.filter(t => {
+          const diasMesArr = []
+          for (let d = 1; d <= qtdDiasMesAtual; d++) {
+            const recDia = receitasFiltered.filter(t => {
               const dStr = t.date || t.data || ''
               if (!dStr.includes('-')) return false
               const diaPart = parseInt(dStr.split('T')[0].split('-')[2], 10)
-              return diaPart >= minD && diaPart <= maxD
+              return diaPart === d
             }).reduce((acc, c) => acc + Number(c.amount || c.valor || 0), 0)
 
-            const saiSem = saidasVariaveisFiltered.filter(t => {
+            const saiDia = saidasVariaveisFiltered.filter(t => {
               const dStr = t.date || t.data || ''
               if (!dStr.includes('-')) return false
               const diaPart = parseInt(dStr.split('T')[0].split('-')[2], 10)
-              return diaPart >= minD && diaPart <= maxD
-            }).reduce((acc, c) => acc + Number(c.amount || c.valor || 0), 0) + (somaCustosFixosBase / 4)
+              return diaPart === d
+            }).reduce((acc, c) => acc + Number(c.amount || c.valor || 0), 0) + (somaCustosFixosBase / qtdDiasMesAtual)
 
-            return { name: semana.name, receita: recSem, despesa: saiSem }
-          })
-          setChartData(dinamicoMes)
+            diasMesArr.push({ name: `${d}`, receita: recDia, despesa: saiDia })
+          }
+          setChartData(diasMesArr)
         } else if (periodo === 'Semana') {
           let minD = 1, maxD = 7
           if (subFiltro === 'Sem 2') { minD = 8; maxD = 14; }
@@ -500,77 +493,99 @@ export default function DashboardPage() {
       <motion.div variants={containerVariants} className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6">
         
         {/* Receitas */}
-        <motion.div variants={itemVariants} className="bg-white dark:bg-[#1f262c] border border-emerald-500/30 rounded-3xl p-6 flex flex-col justify-between shadow-xl shadow-emerald-500/5 relative overflow-hidden group">
-          <div className="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity">
+        <motion.div 
+          variants={itemVariants} 
+          whileHover={{ y: -4, boxShadow: "0 20px 25px -5px rgb(16 185 129 / 0.1)" }}
+          className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-slate-200/50 dark:border-slate-800/50 rounded-3xl p-6 flex flex-col justify-between shadow-2xl transition-all duration-300 relative overflow-hidden group"
+        >
+          <div className="absolute top-[-20%] right-[-10%] w-[120px] h-[120px] rounded-full bg-emerald-500/5 blur-[40px] pointer-events-none" />
+          <div className="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity pointer-events-none">
             <TrendingUp className="w-36 h-36 text-emerald-500" />
           </div>
           <div>
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between relative z-10">
               <span className="p-2.5 rounded-2xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
                 <DollarSign className="w-5 h-5" />
               </span>
-              <span className="text-[10px] font-black uppercase tracking-wider text-emerald-600 bg-emerald-500/10 px-2.5 py-1 rounded-full flex items-center gap-1">
-                <ArrowUpRight className="w-3 h-3" /> Entrada
+              <span className="text-[10px] font-black uppercase tracking-wider text-emerald-600 bg-emerald-500/10 px-3 py-1 rounded-full flex items-center gap-1">
+                <ArrowUpRight className="w-3.5 h-3.5" /> Entrada
               </span>
             </div>
-            <span className="block text-xs font-bold text-slate-400 uppercase tracking-wider mt-4">Receitas Totais</span>
-            <h2 className="text-3xl font-black text-emerald-600 dark:text-emerald-400 mt-1 tracking-tight">{formatCurrency(totalReceitas)}</h2>
+            <span className="block text-xs font-bold text-slate-400 uppercase tracking-widest mt-6">Receitas Totais</span>
+            <h2 className="text-3xl font-black text-emerald-600 dark:text-emerald-400 mt-1.5 tracking-tight">{formatCurrency(totalReceitas)}</h2>
           </div>
-          <div className="mt-6 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs font-bold text-slate-500">
-            <span>{quantidadeVendasPeriodo} vendas realizadas</span>
-            <span className="text-emerald-600">{mesFiltro}/{anoFiltro}</span>
+          <div className="mt-6 pt-3.5 border-t border-slate-100 dark:border-slate-800/60 flex items-center justify-between text-[11px] font-extrabold text-slate-500 relative z-10">
+            <span>{quantidadeVendasPeriodo} vendas</span>
+            <span className="text-emerald-600 bg-emerald-500/10 px-2 py-0.5 rounded-md text-[10px] uppercase tracking-wider">{mesFiltro}/{anoFiltro}</span>
           </div>
         </motion.div>
 
         {/* Saídas & Custos */}
-        <motion.div variants={itemVariants} className="bg-white dark:bg-[#1f262c] border border-rose-500/30 rounded-3xl p-6 flex flex-col justify-between shadow-xl shadow-rose-500/5 relative overflow-hidden group">
-          <div className="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity">
+        <motion.div 
+          variants={itemVariants} 
+          whileHover={{ y: -4, boxShadow: "0 20px 25px -5px rgb(244 63 94 / 0.1)" }}
+          className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-slate-200/50 dark:border-slate-800/50 rounded-3xl p-6 flex flex-col justify-between shadow-2xl transition-all duration-300 relative overflow-hidden group"
+        >
+          <div className="absolute top-[-20%] right-[-10%] w-[120px] h-[120px] rounded-full bg-rose-500/5 blur-[40px] pointer-events-none" />
+          <div className="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity pointer-events-none">
             <TrendingDown className="w-36 h-36 text-rose-500" />
           </div>
           <div>
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between relative z-10">
               <span className="p-2.5 rounded-2xl bg-rose-500/10 text-rose-600 dark:text-rose-400">
                 <TrendingDown className="w-5 h-5" />
               </span>
-              <span className="text-[10px] font-black uppercase tracking-wider text-rose-600 bg-rose-500/10 px-2.5 py-1 rounded-full flex items-center gap-1">
-                <ArrowDownRight className="w-3 h-3" /> Saída
+              <span className="text-[10px] font-black uppercase tracking-wider text-rose-600 bg-rose-500/10 px-3 py-1 rounded-full flex items-center gap-1">
+                <ArrowDownRight className="w-3.5 h-3.5" /> Saída
               </span>
             </div>
-            <span className="block text-xs font-bold text-slate-400 uppercase tracking-wider mt-4">Custos & Despesas</span>
-            <h2 className="text-3xl font-black text-rose-600 dark:text-rose-400 mt-1 tracking-tight">{formatCurrency(totalSaidas + custosFixosMes)}</h2>
+            <span className="block text-xs font-bold text-slate-400 uppercase tracking-widest mt-6">Custos & Despesas</span>
+            <h2 className="text-3xl font-black text-rose-600 dark:text-rose-400 mt-1.5 tracking-tight">{formatCurrency(totalSaidas + custosFixosMes)}</h2>
           </div>
-          <div className="mt-6 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs font-bold text-slate-500">
+          <div className="mt-6 pt-3.5 border-t border-slate-100 dark:border-slate-800/60 flex items-center justify-between text-[11px] font-extrabold text-slate-500 relative z-10">
             <span>Fixos + Variáveis</span>
-            <span className="text-rose-500">Rateio Proporcional</span>
+            <span className="text-rose-500 bg-rose-500/10 px-2 py-0.5 rounded-md text-[10px] uppercase tracking-wider">Rateio Proporcional</span>
           </div>
         </motion.div>
 
         {/* Lucro Líquido & Margem */}
-        <motion.div variants={itemVariants} className="bg-white dark:bg-[#1f262c] border border-amber-500/30 rounded-3xl p-6 flex flex-col justify-between shadow-xl shadow-amber-500/5 relative overflow-hidden group">
+        <motion.div 
+          variants={itemVariants} 
+          whileHover={{ y: -4, boxShadow: "0 20px 25px -5px rgb(245 158 11 / 0.1)" }}
+          className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-slate-200/50 dark:border-slate-800/50 rounded-3xl p-6 flex flex-col justify-between shadow-2xl transition-all duration-300 relative overflow-hidden group"
+        >
+          <div className="absolute top-[-20%] right-[-10%] w-[120px] h-[120px] rounded-full bg-amber-500/5 blur-[40px] pointer-events-none" />
           <div>
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between relative z-10">
               <span className="p-2.5 rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400">
                 <BarChart3 className="w-5 h-5" />
               </span>
-              <span className="text-[10px] font-black uppercase tracking-wider text-amber-600 bg-amber-500/10 px-2.5 py-1 rounded-full">
+              <span className={`text-[10px] font-black uppercase tracking-wider px-3 py-1 rounded-full ${Number(margemLucro) >= 0 ? 'bg-emerald-500/10 text-emerald-600' : 'bg-rose-500/10 text-rose-600'}`}>
                 Margem: {margemLucro}%
               </span>
             </div>
-            <span className="block text-xs font-bold text-slate-400 uppercase tracking-wider mt-4">Lucro Líquido</span>
-            <h2 className={`text-3xl font-black mt-1 tracking-tight ${saldoLiquido >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+            <span className="block text-xs font-bold text-slate-400 uppercase tracking-widest mt-6">Lucro Líquido</span>
+            <h2 className={`text-3xl font-black mt-1.5 tracking-tight ${saldoLiquido >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
               {formatCurrency(saldoLiquido)}
             </h2>
           </div>
-          <div className="mt-6 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs font-bold text-slate-500">
+          <div className="mt-6 pt-3.5 border-t border-slate-100 dark:border-slate-800/60 flex items-center justify-between text-[11px] font-extrabold text-slate-500 relative z-10">
             <span>Balanço Caixa</span>
-            <span className={saldoLiquido >= 0 ? 'text-emerald-500' : 'text-rose-500'}>{saldoLiquido >= 0 ? 'Saudável 🟢' : 'Negativo 🔴'}</span>
+            <span className={`px-2.5 py-0.5 rounded-md text-[9px] uppercase font-black tracking-wider ${saldoLiquido >= 0 ? 'bg-emerald-500/10 text-emerald-500' : 'bg-rose-500/10 text-rose-500'}`}>
+              {saldoLiquido >= 0 ? 'Saudável' : 'Alerta'}
+            </span>
           </div>
         </motion.div>
 
         {/* Fila & Parque Fabril */}
-        <motion.div variants={itemVariants} className="bg-gradient-to-br from-orange-600 via-amber-600 to-orange-700 text-white rounded-3xl p-6 flex flex-col justify-between shadow-xl shadow-orange-600/25 relative overflow-hidden">
+        <motion.div 
+          variants={itemVariants} 
+          whileHover={{ y: -4, boxShadow: "0 20px 25px -5px rgb(249 115 22 / 0.2)" }}
+          className="bg-gradient-to-br from-orange-600 via-amber-600 to-orange-700 text-white rounded-3xl p-6 flex flex-col justify-between shadow-2xl relative overflow-hidden group transition-all duration-300"
+        >
+          <div className="absolute top-[-20%] right-[-10%] w-[120px] h-[120px] rounded-full bg-white/10 blur-[40px] pointer-events-none" />
           <div>
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between relative z-10">
               <span className="p-2.5 rounded-2xl bg-white/20 text-white">
                 <Cpu className="w-5 h-5 animate-spin" style={{ animationDuration: '6s' }} />
               </span>
@@ -578,14 +593,14 @@ export default function DashboardPage() {
                 {pecas3dCount} MÁQUINAS
               </span>
             </div>
-            <span className="block text-xs font-bold text-orange-100 uppercase tracking-wider mt-4">FILA DE PRODUÇÃO</span>
-            <div className="flex items-baseline gap-2 mt-1">
+            <span className="block text-xs font-bold text-orange-100 uppercase tracking-widest mt-6">FILA DE PRODUÇÃO</span>
+            <div className="flex items-baseline gap-2 mt-1.5">
               <h2 className="text-3xl font-black">{totalItensFila}</h2>
               <span className="text-xs text-orange-200 font-bold">itens ativos</span>
             </div>
 
-            <div className="mt-3 space-y-2 relative">
-              <div className="flex items-center gap-1.5 text-xs font-bold text-orange-100 bg-black/20 px-3 py-1.5 rounded-xl w-full justify-between">
+            <div className="mt-4 space-y-2 relative z-10">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-orange-100 bg-black/20 px-3 py-2 rounded-xl w-full justify-between">
                 <div className="flex items-center gap-1.5">
                   <Clock className="w-3.5 h-3.5 text-orange-200" />
                   <span>{totalHorasFila.toFixed(1)}h ativas</span>
@@ -629,9 +644,11 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className="mt-6 pt-3 border-t border-white/20 flex items-center justify-between text-xs font-bold text-orange-100">
-            <span>Perdas: {totalDesperdicioFalhas}g filamento</span>
-            <Link href="/projetos" className="underline hover:text-white">Gerenciar ➔</Link>
+          <div className="mt-6 pt-3.5 border-t border-white/20 flex items-center justify-between text-xs font-bold text-orange-100 relative z-10">
+            <span>Perdas: {totalDesperdicioFalhas}g</span>
+            <Link href="/projetos" className="underline hover:text-white flex items-center gap-1 transition-all">
+              Gerenciar <span>➔</span>
+            </Link>
           </div>
         </motion.div>
 

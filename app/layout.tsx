@@ -151,16 +151,20 @@ export default function RootLayout({
 
   return (
     <html lang="pt-BR">
-      <body className="bg-[#efefef] text-slate-900 antialiased transition-colors duration-300">
+      <body className="bg-slate-50/50 text-slate-950 antialiased transition-colors duration-300">
         
         {isLoginPage ? (
-          <main className="min-h-screen w-full bg-[#efefef]">
+          <main className="min-h-screen w-full bg-slate-50">
             {children}
           </main>
         ) : (
           <>
-            {/* FUNDO GLOBAL DINÂMICO */}
-            <div className="fixed inset-0 pointer-events-none z-0 bg-[#efefef]"></div>
+            {/* FUNDO GLOBAL DINÂMICO ENTERPRISE */}
+            <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden bg-slate-50 dark:bg-[#090d16]">
+              {/* Orbes de luz decorativas modernas (SaaS Glow) */}
+              <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] rounded-full bg-orange-400/10 dark:bg-orange-500/5 blur-[120px]" />
+              <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full bg-blue-400/10 dark:bg-indigo-500/5 blur-[120px]" />
+            </div>
 
             <div className="flex h-screen overflow-hidden relative z-10">
               
