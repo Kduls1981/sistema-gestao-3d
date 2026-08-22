@@ -208,7 +208,7 @@ export default function RootLayout({
               )}
 
               {/* SIDEBAR RESPONSIVA (FIXA NO DESKTOP, DRAWER NO MOBILE) */}
-              <aside className={`fixed md:sticky top-0 bottom-0 left-0 bg-white/95 dark:bg-[#121619]/95 md:bg-white/90 backdrop-blur-2xl border-r border-slate-200 dark:border-slate-800 flex flex-col justify-between p-4 transition-all duration-300 shadow-2xl z-40 md:z-20 overflow-visible w-72 md:w-20 md:hover:w-72 shrink-0 h-full ${
+              <aside className={`group fixed md:sticky top-0 bottom-0 left-0 bg-white/95 dark:bg-[#121619]/95 md:bg-white/90 backdrop-blur-2xl border-r border-slate-200 dark:border-slate-800 flex flex-col justify-between p-4 transition-all duration-300 shadow-2xl z-40 md:z-20 overflow-visible w-72 md:w-20 md:hover:w-72 shrink-0 h-full ${
                 isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
               }`}>
                 <div>
