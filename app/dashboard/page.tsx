@@ -55,6 +55,7 @@ export default function DashboardPage() {
   const [totalProdutosVendidosPeriodo, setTotalProdutosVendidosPeriodo] = useState(0)
   const [pecas3dCount, setPecas3dCount] = useState(0)
   const [transacoes, setTransacoes] = useState<any[]>([])
+  const [transacoesPeriodo, setTransacoesPeriodo] = useState<any[]>([])
   
   const [chartData, setChartData] = useState<any[]>([])
 
@@ -210,6 +211,7 @@ export default function DashboardPage() {
 
         setTotalReceitas(totalRec)
         setTotalSaidas(totalSaiVar)
+        setTransacoesPeriodo(listaCompletaTransacoes)
         setTransacoes(listaCompletaTransacoes.slice(0, 6))
         setQuantidadeVendasPeriodo(receitasFiltered.length)
 
@@ -303,7 +305,7 @@ export default function DashboardPage() {
 
   // Carregamento inteligente e cruzamento de dados sem inconsistências
   // 1. Filtrar as transações de receita do período atual
-  const transacoesReceitaPeriodo = transacoes.filter(t => {
+  const transacoesReceitaPeriodo = transacoesPeriodo.filter(t => {
     const type = (t.type || t.tipo || '').toLowerCase()
     return type === 'receita' || type === 'entrada' || type === 'income'
   })
@@ -667,16 +669,16 @@ export default function DashboardPage() {
             <span className="text-[10px] font-black uppercase tracking-wider text-orange-600 dark:text-orange-400 bg-orange-500/10 px-2 py-0.5 rounded-md">Comercial & Vendas</span>
             <div className="space-y-2">
               <div className="flex justify-between items-center text-xs">
-                <span className="text-slate-400 font-medium">Ticket Médio</span>
-                <span className="font-extrabold text-white">{formatCurrency(ticketMedio)}</span>
+                <span className="text-slate-400 dark:text-slate-400 font-medium">Ticket Médio</span>
+                <span className="font-extrabold text-slate-800 dark:text-white">{formatCurrency(ticketMedio)}</span>
               </div>
               <div className="flex justify-between items-center text-xs">
-                <span className="text-slate-400 font-medium">Gateway Pago</span>
-                <span className="font-bold text-rose-400">-{formatCurrency(totalTaxasGateway)}</span>
+                <span className="text-slate-400 dark:text-slate-400 font-medium">Gateway Pago</span>
+                <span className="font-bold text-rose-500 dark:text-rose-400">-{formatCurrency(totalTaxasGateway)}</span>
               </div>
               <div className="flex justify-between items-center text-xs">
-                <span className="text-slate-400 font-medium">Pagamento Líder</span>
-                <span className="font-black text-emerald-400 text-[10px] uppercase tracking-wider">{meioPagamentoLider}</span>
+                <span className="text-slate-400 dark:text-slate-400 font-medium">Pagamento Líder</span>
+                <span className="font-black text-emerald-600 dark:text-emerald-400 text-[10px] uppercase tracking-wider">{meioPagamentoLider}</span>
               </div>
             </div>
           </div>
@@ -686,16 +688,16 @@ export default function DashboardPage() {
             <span className="text-[10px] font-black uppercase tracking-wider text-blue-600 dark:text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-md">Produção & Operações</span>
             <div className="space-y-2">
               <div className="flex justify-between items-center text-xs">
-                <span className="text-slate-400 font-medium">Horas em Fila</span>
-                <span className="font-extrabold text-white">{totalHorasFila.toFixed(1)}h</span>
+                <span className="text-slate-400 dark:text-slate-400 font-medium">Horas em Fila</span>
+                <span className="font-extrabold text-slate-800 dark:text-white">{totalHorasFila.toFixed(1)}h</span>
               </div>
               <div className="flex justify-between items-center text-xs">
-                <span className="text-slate-400 font-medium">Fator Ocupação</span>
-                <span className="font-bold text-blue-400">{percentualOcupacaoCapacidade}%</span>
+                <span className="text-slate-400 dark:text-slate-400 font-medium">Fator Ocupação</span>
+                <span className="font-bold text-blue-600 dark:text-blue-400">{percentualOcupacaoCapacidade}%</span>
               </div>
               <div className="flex justify-between items-center text-xs">
-                <span className="text-slate-400 font-medium">Itens na Fila</span>
-                <span className="font-black text-white">{totalItensFila} un.</span>
+                <span className="text-slate-400 dark:text-slate-400 font-medium">Itens na Fila</span>
+                <span className="font-black text-slate-800 dark:text-white">{totalItensFila} un.</span>
               </div>
             </div>
           </div>
@@ -705,16 +707,16 @@ export default function DashboardPage() {
             <span className="text-[10px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-md">Estoque & Insumos</span>
             <div className="space-y-2">
               <div className="flex justify-between items-center text-xs">
-                <span className="text-slate-400 font-medium">Valoração total</span>
-                <span className="font-extrabold text-white">{formatCurrency(valorTotalEstoque)}</span>
+                <span className="text-slate-400 dark:text-slate-400 font-medium">Valoração total</span>
+                <span className="font-extrabold text-slate-800 dark:text-white">{formatCurrency(valorTotalEstoque)}</span>
               </div>
               <div className="flex justify-between items-center text-xs">
-                <span className="text-slate-400 font-medium">Volume Global</span>
-                <span className="font-bold text-white">{(totalEstoqueG / 1000).toFixed(2)}kg</span>
+                <span className="text-slate-400 dark:text-slate-400 font-medium">Volume Global</span>
+                <span className="font-bold text-slate-800 dark:text-white">{(totalEstoqueG / 1000).toFixed(2)}kg</span>
               </div>
               <div className="flex justify-between items-center text-xs">
-                <span className="text-slate-400 font-medium">Nível Crítico (≤1kg)</span>
-                <span className={`font-black text-xs ${bobinasCriticasCount > 0 ? 'text-rose-500 animate-pulse' : 'text-slate-300'}`}>
+                <span className="text-slate-400 dark:text-slate-400 font-medium">Nível Crítico (≤1kg)</span>
+                <span className={`font-black text-xs ${bobinasCriticasCount > 0 ? 'text-rose-600 dark:text-rose-500 animate-pulse' : 'text-slate-500 dark:text-slate-400'}`}>
                   {bobinasCriticasCount} bobinas
                 </span>
               </div>
@@ -726,16 +728,16 @@ export default function DashboardPage() {
             <span className="text-[10px] font-black uppercase tracking-wider text-rose-600 dark:text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded-md">Controle de Qualidade (QA)</span>
             <div className="space-y-2">
               <div className="flex justify-between items-center text-xs">
-                <span className="text-slate-400 font-medium">Taxa de Desperdício</span>
-                <span className="font-extrabold text-white">{taxaFalhaPercentual}%</span>
+                <span className="text-slate-400 dark:text-slate-400 font-medium">Taxa de Desperdício</span>
+                <span className="font-extrabold text-slate-800 dark:text-white">{taxaFalhaPercentual}%</span>
               </div>
               <div className="flex justify-between items-center text-xs">
-                <span className="text-slate-400 font-medium">Massa Desperdiçada</span>
-                <span className="font-bold text-white">{totalDesperdicioFalhas}g</span>
+                <span className="text-slate-400 dark:text-slate-400 font-medium">Massa Desperdiçada</span>
+                <span className="font-bold text-slate-800 dark:text-white">{totalDesperdicioFalhas}g</span>
               </div>
               <div className="flex justify-between items-center text-xs">
-                <span className="text-slate-400 font-medium">Prejuízo Acumulado</span>
-                <span className="font-black text-rose-400">{formatCurrency(custoPerdaFalhas)}</span>
+                <span className="text-slate-400 dark:text-slate-400 font-medium">Prejuízo Acumulado</span>
+                <span className="font-black text-rose-600 dark:text-rose-400">{formatCurrency(custoPerdaFalhas)}</span>
               </div>
             </div>
           </div>
