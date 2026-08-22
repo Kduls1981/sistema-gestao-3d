@@ -8,7 +8,8 @@ import { motion, Variants, AnimatePresence } from 'framer-motion'
 import { 
   TrendingUp, TrendingDown, DollarSign, Rocket, 
   Cpu, Package, Activity, BarChart3, 
-  Zap, PieChart as PieIcon, ArrowUpRight, ArrowDownRight, Clock, Thermometer 
+  Zap, PieChart as PieIcon, ArrowUpRight, ArrowDownRight, Clock, Thermometer,
+  Radar, Target
 } from 'lucide-react'
 import { 
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer, 
@@ -385,15 +386,21 @@ export default function DashboardPage() {
 
   const qtdDiasAtualNum = (mapMesNumero[mesFiltro] || mapMesNumero['Ago']).dias
 
+  // Metas financeiras e operacionais dinâmicas e de alta fidelidade
+  const targetMeta = periodo === 'Ano' ? 120000 : periodo === 'Mes' ? 10000 : periodo === 'Semana' ? 2500 : 400
+  const percentMeta = Math.min(Math.round((totalReceitas / targetMeta) * 100), 100)
+  const metaDesperdicioAceitavel = 5.0
+  const desperdicioDentroDaMeta = taxaFalhaPercentual <= metaDesperdicioAceitavel
+
   return (
     <motion.div 
       initial="hidden"
       animate="show"
       variants={containerVariants}
-      className="p-6 lg:p-10 space-y-8 text-slate-800 dark:text-slate-100 min-h-screen bg-gradient-to-br from-slate-50 via-slate-100/50 to-slate-200/40 dark:from-[#121619] dark:via-[#181d22] dark:to-[#101316]"
+      className="p-6 lg:p-10 space-y-8 text-slate-800 dark:text-slate-100 min-h-screen bg-gradient-to-br bg-fixed from-[#f1f5f9] via-slate-100 to-slate-200 dark:from-[#070c14] dark:via-[#0c1322] dark:to-[#040810]"
     >
       {/* 🚀 Top Header / Comando Corporativo */}
-      <motion.div variants={itemVariants} className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 bg-white/90 dark:bg-[#1f262c]/95 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800 p-6 rounded-3xl shadow-2xl shadow-slate-900/5">
+      <motion.div variants={itemVariants} className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 bg-white/75 dark:bg-[#0b1426]/60 backdrop-blur-xl border border-slate-200/50 dark:border-white/10 p-6 rounded-3xl shadow-2xl shadow-slate-900/5">
         <div className="flex items-center gap-4">
           <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-orange-500 via-amber-500 to-orange-600 flex items-center justify-center text-white shadow-xl shadow-orange-500/25">
             <Rocket className="w-7 h-7 animate-bounce" style={{ animationDuration: '3s' }} />
@@ -405,17 +412,17 @@ export default function DashboardPage() {
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" /> LIVE SYNC
               </span>
             </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mt-0.5">Gestão de alta performance: finanças, parque fabril e suprimentos em tempo real.</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400 font-semibold mt-0.5">Gestão de alta performance: finanças, parque fabril e suprimentos em tempo real.</p>
           </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto justify-end">
-          <div className="flex bg-slate-100 dark:bg-[#171c20] border border-slate-200 dark:border-slate-800 p-1.5 rounded-2xl">
+          <div className="flex bg-slate-100/80 dark:bg-black/30 border border-slate-200/30 dark:border-white/5 p-1.5 rounded-2xl">
             {['Dia', 'Semana', 'Mes', 'Ano'].map((p) => (
               <button
                 key={p}
                 onClick={() => setPeriodo(p)}
-                className={`px-4 py-2 text-xs font-black rounded-xl transition-all ${
+                className={`px-4 py-2 text-sm font-extrabold rounded-xl transition-all ${
                   periodo === p ? 'bg-gradient-to-r from-orange-600 to-amber-600 text-white shadow-lg shadow-orange-600/30' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
@@ -431,8 +438,8 @@ export default function DashboardPage() {
       </motion.div>
 
       {/* 📅 Barra de Filtros Temporal Dinâmica */}
-      <motion.div variants={itemVariants} className="bg-white/70 dark:bg-[#1f262c]/70 backdrop-blur-md border border-slate-200/80 dark:border-slate-800 p-4 rounded-2xl flex items-center justify-between gap-4 overflow-x-auto shadow-sm">
-        <div className="flex items-center gap-2 text-xs font-extrabold text-slate-700 dark:text-slate-300 uppercase tracking-wider whitespace-nowrap">
+      <motion.div variants={itemVariants} className="bg-white/70 dark:bg-[#0b1426]/60 backdrop-blur-xl border border-slate-200/50 dark:border-white/10 p-4 rounded-2xl flex items-center justify-between gap-4 overflow-x-auto shadow-xl">
+        <div className="flex items-center gap-2 text-sm font-extrabold text-slate-700 dark:text-slate-300 uppercase tracking-wider whitespace-nowrap">
           <Activity className="w-4 h-4 text-orange-500" /> SELEÇÃO ({periodo.toUpperCase()}):
         </div>
         
@@ -441,7 +448,7 @@ export default function DashboardPage() {
             <button
               key={mes}
               onClick={() => { setMesFiltro(mes); setSubFiltro(mes); }}
-              className={`px-3.5 py-1.5 text-xs rounded-xl font-bold transition-all ${
+              className={`px-3.5 py-1.5 text-sm rounded-xl font-bold transition-all ${
                 mesFiltro === mes ? 'bg-orange-600 text-white shadow-md shadow-orange-600/20' : 'bg-slate-100 dark:bg-[#171c20] text-slate-600 dark:text-slate-400 hover:bg-slate-200'
               }`}
             >
@@ -453,7 +460,7 @@ export default function DashboardPage() {
             <button
               key={ano}
               onClick={() => { setAnoFiltro(ano); setSubFiltro(ano); }}
-              className={`px-4 py-1.5 text-xs rounded-xl font-bold transition-all ${
+              className={`px-4 py-1.5 text-sm rounded-xl font-bold transition-all ${
                 anoFiltro === ano ? 'bg-orange-600 text-white shadow-md shadow-orange-600/20' : 'bg-slate-100 dark:bg-[#171c20] text-slate-600 dark:text-slate-400'
               }`}
             >
@@ -465,7 +472,7 @@ export default function DashboardPage() {
             <button
               key={sem}
               onClick={() => setSubFiltro(sem)}
-              className={`px-4 py-1.5 text-xs rounded-xl font-bold transition-all ${
+              className={`px-4 py-1.5 text-sm rounded-xl font-bold transition-all ${
                 subFiltro === sem ? 'bg-orange-600 text-white shadow-md shadow-orange-600/20' : 'bg-slate-100 dark:bg-[#171c20] text-slate-600 dark:text-slate-400'
               }`}
             >
@@ -480,7 +487,7 @@ export default function DashboardPage() {
               <button
                 key={diaStr}
                 onClick={() => setSubFiltro(diaStr)}
-                className={`px-2.5 py-1.5 text-xs rounded-xl font-bold transition-all ${
+                className={`px-2.5 py-1.5 text-sm rounded-xl font-bold transition-all ${
                   subFiltro === diaStr ? 'bg-orange-600 text-white shadow-md shadow-orange-600/20' : 'bg-slate-100 dark:bg-[#171c20] text-slate-600 dark:text-slate-400'
                 }`}
               >
@@ -491,165 +498,193 @@ export default function DashboardPage() {
         </div>
       </motion.div>
 
-      {/* 📊 Grid de KPIs Executivos */}
-      <motion.div variants={containerVariants} className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6">
+      {/* 📊 Grid de KPIs Executivos Premium: Balance, Goals & Radar */}
+      <motion.div variants={containerVariants} className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         
-        {/* Receitas */}
+        {/* Card 1: Balance (Balanço Consolidado) */}
         <motion.div 
           variants={itemVariants} 
-          whileHover={{ y: -4, boxShadow: "0 20px 25px -5px rgb(16 185 129 / 0.1)" }}
-          className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-slate-200/50 dark:border-slate-800/50 rounded-3xl p-6 flex flex-col justify-between shadow-2xl transition-all duration-300 relative overflow-hidden group"
+          whileHover={{ y: -6, boxShadow: "0 25px 30px -5px rgb(16 185 129 / 0.15)" }}
+          className="bg-white/75 dark:bg-[#0b1426]/60 backdrop-blur-xl border border-slate-200/50 dark:border-white/10 rounded-3xl p-7 flex flex-col justify-between shadow-2xl transition-all duration-300 relative overflow-hidden group"
         >
-          <div className="absolute top-[-20%] right-[-10%] w-[120px] h-[120px] rounded-full bg-emerald-500/5 blur-[40px] pointer-events-none" />
-          <div className="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity pointer-events-none">
-            <TrendingUp className="w-36 h-36 text-emerald-500" />
+          <div className="absolute top-[-20%] right-[-10%] w-[150px] h-[120px] rounded-full bg-emerald-500/10 blur-[40px] pointer-events-none" />
+          <div className="absolute -right-6 -bottom-6 opacity-[0.03] group-hover:opacity-[0.08] transition-opacity pointer-events-none">
+            <DollarSign className="w-44 h-44 text-emerald-500" />
           </div>
+          
           <div>
             <div className="flex items-center justify-between relative z-10">
-              <span className="p-2.5 rounded-2xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-                <DollarSign className="w-5 h-5" />
-              </span>
-              <span className="text-[10px] font-black uppercase tracking-wider text-emerald-600 bg-emerald-500/10 px-3 py-1 rounded-full flex items-center gap-1">
-                <ArrowUpRight className="w-3.5 h-3.5" /> Entrada
-              </span>
-            </div>
-            <span className="block text-xs font-bold text-slate-400 uppercase tracking-widest mt-6">Receitas Totais</span>
-            <h2 className="text-3xl font-black text-emerald-600 dark:text-emerald-400 mt-1.5 tracking-tight">{formatCurrency(totalReceitas)}</h2>
-          </div>
-          <div className="mt-6 pt-3.5 border-t border-slate-100 dark:border-slate-800/60 flex items-center justify-between text-[11px] font-extrabold text-slate-500 relative z-10">
-            <span>{quantidadeVendasPeriodo} vendas</span>
-            <span className="text-emerald-600 bg-emerald-500/10 px-2 py-0.5 rounded-md text-[10px] uppercase tracking-wider">{mesFiltro}/{anoFiltro}</span>
-          </div>
-        </motion.div>
-
-        {/* Saídas & Custos */}
-        <motion.div 
-          variants={itemVariants} 
-          whileHover={{ y: -4, boxShadow: "0 20px 25px -5px rgb(244 63 94 / 0.1)" }}
-          className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-slate-200/50 dark:border-slate-800/50 rounded-3xl p-6 flex flex-col justify-between shadow-2xl transition-all duration-300 relative overflow-hidden group"
-        >
-          <div className="absolute top-[-20%] right-[-10%] w-[120px] h-[120px] rounded-full bg-rose-500/5 blur-[40px] pointer-events-none" />
-          <div className="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity pointer-events-none">
-            <TrendingDown className="w-36 h-36 text-rose-500" />
-          </div>
-          <div>
-            <div className="flex items-center justify-between relative z-10">
-              <span className="p-2.5 rounded-2xl bg-rose-500/10 text-rose-600 dark:text-rose-400">
-                <TrendingDown className="w-5 h-5" />
-              </span>
-              <span className="text-[10px] font-black uppercase tracking-wider text-rose-600 bg-rose-500/10 px-3 py-1 rounded-full flex items-center gap-1">
-                <ArrowDownRight className="w-3.5 h-3.5" /> Saída
-              </span>
-            </div>
-            <span className="block text-xs font-bold text-slate-400 uppercase tracking-widest mt-6">Custos & Despesas</span>
-            <h2 className="text-3xl font-black text-rose-600 dark:text-rose-400 mt-1.5 tracking-tight">{formatCurrency(totalSaidas + custosFixosMes)}</h2>
-          </div>
-          <div className="mt-6 pt-3.5 border-t border-slate-100 dark:border-slate-800/60 flex items-center justify-between text-[11px] font-extrabold text-slate-500 relative z-10">
-            <span>Fixos + Variáveis</span>
-            <span className="text-rose-500 bg-rose-500/10 px-2 py-0.5 rounded-md text-[10px] uppercase tracking-wider">Rateio Proporcional</span>
-          </div>
-        </motion.div>
-
-        {/* Lucro Líquido & Margem */}
-        <motion.div 
-          variants={itemVariants} 
-          whileHover={{ y: -4, boxShadow: "0 20px 25px -5px rgb(245 158 11 / 0.1)" }}
-          className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-slate-200/50 dark:border-slate-800/50 rounded-3xl p-6 flex flex-col justify-between shadow-2xl transition-all duration-300 relative overflow-hidden group"
-        >
-          <div className="absolute top-[-20%] right-[-10%] w-[120px] h-[120px] rounded-full bg-amber-500/5 blur-[40px] pointer-events-none" />
-          <div>
-            <div className="flex items-center justify-between relative z-10">
-              <span className="p-2.5 rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400">
-                <BarChart3 className="w-5 h-5" />
-              </span>
-              <span className={`text-[10px] font-black uppercase tracking-wider px-3 py-1 rounded-full ${Number(margemLucro) >= 0 ? 'bg-emerald-500/10 text-emerald-600' : 'bg-rose-500/10 text-rose-600'}`}>
+              <div className="flex items-center gap-3">
+                <span className="p-3 rounded-2xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 shadow-inner">
+                  <DollarSign className="w-6 h-6" />
+                </span>
+                <h3 className="font-extrabold text-base text-slate-500 dark:text-slate-400 uppercase tracking-wider">Balanço Consolidado</h3>
+              </div>
+              <span className={`text-xs font-black uppercase tracking-wider px-3.5 py-1.5 rounded-full ${Number(margemLucro) >= 0 ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20'}`}>
                 Margem: {margemLucro}%
               </span>
             </div>
-            <span className="block text-xs font-bold text-slate-400 uppercase tracking-widest mt-6">Lucro Líquido</span>
-            <h2 className={`text-3xl font-black mt-1.5 tracking-tight ${saldoLiquido >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
-              {formatCurrency(saldoLiquido)}
-            </h2>
+
+            <div className="mt-8 space-y-1 relative z-10">
+              <span className="text-sm font-bold text-slate-400 uppercase tracking-widest">Saldo Líquido Real</span>
+              <h2 className={`text-4xl lg:text-5xl font-black tracking-tight ${saldoLiquido >= 0 ? 'text-emerald-600 dark:text-emerald-400 drop-shadow-[0_2px_8px_rgba(16,185,129,0.15)]' : 'text-rose-600 dark:text-rose-400 drop-shadow-[0_2px_8px_rgba(244,63,94,0.15)]'}`}>
+                {formatCurrency(saldoLiquido)}
+              </h2>
+            </div>
+
+            {/* Detalhamento de Entradas vs Saídas */}
+            <div className="mt-8 space-y-3.5 relative z-10">
+              <div className="flex justify-between items-center bg-slate-50/40 dark:bg-[#0c162b]/40 p-3.5 rounded-2xl border border-slate-200/40 dark:border-white/5">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                  <span className="text-sm font-semibold text-slate-500 dark:text-slate-400">Total Recebido</span>
+                </div>
+                <span className="text-base font-black text-emerald-600 dark:text-emerald-400">{formatCurrency(totalReceitas)}</span>
+              </div>
+
+              <div className="flex justify-between items-center bg-slate-50/40 dark:bg-[#0c162b]/40 p-3.5 rounded-2xl border border-slate-200/40 dark:border-white/5">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
+                  <span className="text-sm font-semibold text-slate-500 dark:text-slate-400">Despesas Totais</span>
+                </div>
+                <span className="text-base font-black text-rose-500 dark:text-rose-400">{formatCurrency(totalSaidas + custosFixosMes + totalTaxasGateway)}</span>
+              </div>
+            </div>
           </div>
-          <div className="mt-6 pt-3.5 border-t border-slate-100 dark:border-slate-800/60 flex items-center justify-between text-[11px] font-extrabold text-slate-500 relative z-10">
-            <span>Balanço Caixa</span>
-            <span className={`px-2.5 py-0.5 rounded-md text-[9px] uppercase font-black tracking-wider ${saldoLiquido >= 0 ? 'bg-emerald-500/10 text-emerald-500' : 'bg-rose-500/10 text-rose-500'}`}>
-              {saldoLiquido >= 0 ? 'Saudável' : 'Alerta'}
+
+          <div className="mt-8 pt-4 border-t border-slate-200/50 dark:border-white/10 flex items-center justify-between text-sm font-bold text-slate-500 relative z-10">
+            <span>Caixa: {quantidadeVendasPeriodo} Vendas</span>
+            <span className={`px-3 py-1 rounded-md text-xs uppercase font-black tracking-widest ${saldoLiquido >= 0 ? 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-500 border border-rose-500/20'}`}>
+              {saldoLiquido >= 0 ? 'SAUDÁVEL' : 'ALERTA CAIXA'}
             </span>
           </div>
         </motion.div>
 
-        {/* Fila & Parque Fabril */}
+        {/* Card 2: Goals (Metas do Período) */}
         <motion.div 
           variants={itemVariants} 
-          whileHover={{ y: -4, boxShadow: "0 20px 25px -5px rgb(249 115 22 / 0.2)" }}
-          className="bg-gradient-to-br from-orange-600 via-amber-600 to-orange-700 text-white rounded-3xl p-6 flex flex-col justify-between shadow-2xl relative overflow-hidden group transition-all duration-300"
+          whileHover={{ y: -6, boxShadow: "0 25px 30px -5px rgb(245 158 11 / 0.15)" }}
+          className="bg-white/75 dark:bg-[#0b1426]/60 backdrop-blur-xl border border-slate-200/50 dark:border-white/10 rounded-3xl p-7 flex flex-col justify-between shadow-2xl transition-all duration-300 relative overflow-hidden group"
         >
-          <div className="absolute top-[-20%] right-[-10%] w-[120px] h-[120px] rounded-full bg-white/10 blur-[40px] pointer-events-none" />
+          <div className="absolute top-[-20%] right-[-10%] w-[150px] h-[120px] rounded-full bg-amber-500/10 blur-[40px] pointer-events-none" />
+          <div className="absolute -right-6 -bottom-6 opacity-[0.03] group-hover:opacity-[0.08] transition-opacity pointer-events-none">
+            <Target className="w-44 h-44 text-amber-500" />
+          </div>
+
           <div>
             <div className="flex items-center justify-between relative z-10">
-              <span className="p-2.5 rounded-2xl bg-white/20 text-white">
-                <Cpu className="w-5 h-5 animate-spin" style={{ animationDuration: '6s' }} />
+              <div className="flex items-center gap-3">
+                <span className="p-3 rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 shadow-inner">
+                  <Target className="w-6 h-6" />
+                </span>
+                <h3 className="font-extrabold text-base text-slate-500 dark:text-slate-400 uppercase tracking-wider">Metas de Faturamento</h3>
+              </div>
+              <span className="text-xs font-black uppercase tracking-wider px-3.5 py-1.5 bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded-full border border-amber-500/20">
+                Meta: {periodo}
               </span>
-              <span className="text-[10px] font-black uppercase tracking-wider bg-white/20 px-3 py-1 rounded-full backdrop-blur-sm">
-                {pecas3dCount} MÁQUINAS
-              </span>
-            </div>
-            <span className="block text-xs font-bold text-orange-100 uppercase tracking-widest mt-6">FILA DE PRODUÇÃO</span>
-            <div className="flex items-baseline gap-2 mt-1.5">
-              <h2 className="text-3xl font-black">{totalItensFila}</h2>
-              <span className="text-xs text-orange-200 font-bold">itens ativos</span>
             </div>
 
-            <div className="mt-4 space-y-2 relative z-10">
-              <div className="flex items-center gap-1.5 text-xs font-bold text-orange-100 bg-black/20 px-3 py-2 rounded-xl w-full justify-between">
-                <div className="flex items-center gap-1.5">
-                  <Clock className="w-3.5 h-3.5 text-orange-200" />
-                  <span>{totalHorasFila.toFixed(1)}h ativas</span>
+            <div className="mt-8 space-y-1 relative z-10">
+              <span className="text-sm font-bold text-slate-400 uppercase tracking-widest">Alcançado vs Objetivo</span>
+              <h2 className="text-4xl lg:text-5xl font-black tracking-tight text-slate-900 dark:text-white">
+                {percentMeta}%
+              </h2>
+            </div>
+
+            {/* Barra de Progresso da Meta com Design Premium */}
+            <div className="mt-8 space-y-4 relative z-10">
+              <div className="flex justify-between items-center text-sm font-bold text-slate-500 dark:text-slate-400">
+                <span>{formatCurrency(totalReceitas)}</span>
+                <span>Objetivo: {formatCurrency(targetMeta)}</span>
+              </div>
+              <div className="w-full bg-slate-200/50 dark:bg-black/20 h-3 rounded-full overflow-hidden p-0.5 border border-slate-200/30 dark:border-white/5 shadow-inner">
+                <motion.div 
+                  className="h-full rounded-full bg-gradient-to-r from-amber-500 to-orange-500 shadow-md shadow-orange-500/20"
+                  initial={{ width: 0 }}
+                  animate={{ width: `${percentMeta}%` }}
+                  transition={{ duration: 1, ease: "easeOut" }}
+                />
+              </div>
+            </div>
+
+            {/* Sub-Metas de Qualidade */}
+            <div className="mt-6 flex items-center justify-between bg-slate-50/40 dark:bg-[#0c162b]/40 p-3.5 rounded-2xl border border-slate-200/40 dark:border-white/5 relative z-10">
+              <div className="flex flex-col">
+                <span className="text-xs font-black uppercase tracking-wider text-slate-400">Meta Desperdício</span>
+                <span className="text-sm font-bold text-slate-700 dark:text-slate-300">Aceitável: ≤ {metaDesperdicioAceitavel}%</span>
+              </div>
+              <span className={`text-xs font-black px-2.5 py-1 rounded-md ${desperdicioDentroDaMeta ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/10' : 'bg-rose-500/10 text-rose-500 border border-rose-500/10'}`}>
+                {desperdicioDentroDaMeta ? 'META ATINGIDA' : 'FORA DA META'}
+              </span>
+            </div>
+          </div>
+
+          <div className="mt-8 pt-4 border-t border-slate-200/50 dark:border-white/10 flex items-center justify-between text-sm font-bold text-slate-500 relative z-10">
+            <span>Status das Vendas</span>
+            <span className="font-extrabold text-amber-600 dark:text-amber-400">
+              Faltam {formatCurrency(Math.max(targetMeta - totalReceitas, 0))}
+            </span>
+          </div>
+        </motion.div>
+
+        {/* Card 3: Radar (Radar Operacional e de Insumos) */}
+        <motion.div 
+          variants={itemVariants} 
+          whileHover={{ y: -6, boxShadow: "0 25px 30px -5px rgb(249 115 22 / 0.2)" }}
+          className="bg-gradient-to-br from-orange-600/85 via-amber-600/85 to-orange-700/85 backdrop-blur-xl border border-orange-500/30 rounded-3xl p-7 flex flex-col justify-between shadow-2xl relative overflow-hidden group transition-all duration-300 text-[#f9f9f9]"
+        >
+          <div className="absolute top-[-20%] right-[-10%] w-[150px] h-[120px] rounded-full bg-white/10 blur-[40px] pointer-events-none" />
+          <div className="absolute -right-6 -bottom-6 opacity-5 group-hover:opacity-10 pointer-events-none">
+            <Radar className="w-44 h-44 text-white animate-pulse" />
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between relative z-10">
+              <div className="flex items-center gap-3">
+                <span className="p-3 rounded-2xl bg-white/20 text-white shadow-md">
+                  <Radar className="w-6 h-6 animate-spin" style={{ animationDuration: '8s' }} />
+                </span>
+                <h3 className="font-extrabold text-base text-orange-100 uppercase tracking-wider">Radar Operacional</h3>
+              </div>
+              <span className="bg-white/20 text-white text-[11px] px-3 py-1.5 rounded-full font-black border border-white/15 flex items-center gap-1.5 backdrop-blur-sm shadow-inner">
+                <span className="w-2.5 h-2.5 rounded-full bg-green-400 animate-ping" /> MONITOR LIVE
+              </span>
+            </div>
+
+            <div className="mt-8 space-y-1 relative z-10">
+              <span className="text-sm font-bold text-orange-200 uppercase tracking-widest">Capacidade Parque Fabril</span>
+              <div className="flex items-baseline gap-2">
+                <h2 className="text-4xl lg:text-5xl font-black tracking-tight">{percentualOcupacaoCapacidade}%</h2>
+                <span className="text-sm font-bold text-orange-200">em uso</span>
+              </div>
+            </div>
+
+            {/* Alertas Ativos no Radar */}
+            <div className="mt-8 space-y-3 relative z-10">
+              <div className="flex justify-between items-center bg-black/25 px-4 py-3 rounded-2xl border border-white/10">
+                <div className="flex items-center gap-2">
+                  <Cpu className="w-4 h-4 text-orange-200" />
+                  <span className="text-sm font-bold text-orange-100">Fila Ativa</span>
                 </div>
-                <div className="flex items-center gap-1 text-[11px] text-orange-200 font-extrabold">
-                  <Thermometer className="w-3.5 h-3.5 text-amber-200" />
-                  <span>Máx: {capacidadeHorasMaquinas}h</span>
-                </div>
+                <span className="text-sm font-black">{totalItensFila} un / {totalHorasFila.toFixed(1)}h</span>
               </div>
 
-              <div className="relative">
-                <div 
-                  onMouseEnter={() => setShowTooltipCapacidade(true)}
-                  onMouseLeave={() => setShowTooltipCapacidade(false)}
-                  className="w-full bg-black/30 h-3 rounded-full overflow-hidden p-0.5 border border-white/20 cursor-pointer shadow-inner transition-all hover:border-white/40"
-                >
-                  <div 
-                    className="h-full rounded-full bg-gradient-to-r from-amber-200 to-white transition-all duration-700 shadow-sm"
-                    style={{ width: `${percentualOcupacaoCapacidade}%` }}
-                  ></div>
+              <div className="flex justify-between items-center bg-black/25 px-4 py-3 rounded-2xl border border-white/10">
+                <div className="flex items-center gap-2">
+                  <Package className="w-4 h-4 text-orange-200" />
+                  <span className="text-sm font-bold text-orange-100">Insumos Críticos</span>
                 </div>
-
-                <AnimatePresence>
-                  {showTooltipCapacidade && (
-                    <motion.div 
-                      initial={{ opacity: 0, y: 6, scale: 0.95 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, y: 4, scale: 0.95 }}
-                      transition={{ duration: 0.2, ease: "easeOut" }}
-                      className="absolute left-1/2 -translate-x-1/2 bottom-full mb-3 z-50 pointer-events-none"
-                    >
-                      <div className="bg-slate-900/95 dark:bg-[#121619]/95 backdrop-blur-xl border border-white/15 text-white text-xs font-medium px-4 py-2.5 rounded-2xl shadow-2xl shadow-black/50 whitespace-nowrap flex items-center gap-2.5">
-                        <span className="w-2 h-2 rounded-full bg-orange-400 animate-pulse" />
-                        <span>Capacidade Utilizada: <strong className="text-orange-300">{percentualOcupacaoCapacidade}%</strong> ({totalHorasFila.toFixed(1)}h / {capacidadeHorasMaquinas}h)</span>
-                      </div>
-                      <div className="w-2.5 h-2.5 bg-slate-900 border-r border-b border-white/15 rotate-45 mx-auto -mt-1.5" />
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+                <span className={`text-sm font-black px-2 py-0.5 rounded-md ${bobinasCriticasCount > 0 ? 'bg-red-500/45 text-white animate-pulse' : 'bg-emerald-500/45'}`}>
+                  {bobinasCriticasCount} bobinas
+                </span>
               </div>
             </div>
           </div>
 
-          <div className="mt-6 pt-3.5 border-t border-white/20 flex items-center justify-between text-xs font-bold text-orange-100 relative z-10">
-            <span>Perdas: {totalDesperdicioFalhas}g</span>
-            <Link href="/projetos" className="underline hover:text-white flex items-center gap-1 transition-all">
-              Gerenciar <span>➔</span>
+          <div className="mt-8 pt-4 border-t border-white/20 flex items-center justify-between text-sm font-bold text-orange-100 relative z-10">
+            <span>Falhas: {totalDesperdicioFalhas}g</span>
+            <Link href="/maquinas" className="underline hover:text-white flex items-center gap-1 transition-all font-black">
+              Parque Fabril <span>➔</span>
             </Link>
           </div>
         </motion.div>
@@ -936,9 +971,17 @@ export default function DashboardPage() {
                         {item.type || 'PLA'}
                       </span>
                       {isCritical ? (
-                        <span className="inline-block px-2 py-0.5 rounded-md bg-rose-500/10 text-rose-500 text-[9px] font-black mt-1.5">
-                          ⚠️ Baixo (Zona Vermelha)
-                        </span>
+                        <div className="space-y-1 w-full flex flex-col items-center">
+                          <span className="inline-block px-2 py-0.5 rounded-md bg-rose-500/10 text-rose-500 text-[9px] font-black mt-1.5 animate-pulse">
+                            ⚠️ Baixo (Zona Vermelha)
+                          </span>
+                          <Link 
+                            href="/estoque"
+                            className="inline-flex items-center justify-center gap-1 w-full px-2 py-1.5 rounded-xl bg-white/20 hover:bg-white/30 text-white text-[9px] font-black transition-all border border-white/10 shadow-sm"
+                          >
+                            Ver Estoque ➔
+                          </Link>
+                        </div>
                       ) : (
                         <span className="inline-block px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[9px] font-bold mt-1.5">
                           Estável (Verde/Amarelo)

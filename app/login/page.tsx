@@ -63,22 +63,22 @@ export default function LoginPage() {
 
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
-            <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1.5 font-bold">
-              E-mail
+            <label className="block text-[10px] uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-1.5 font-bold">
+              E-mail corporativo
             </label>
             <input 
               type="email" 
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="seu@email.com"
+              placeholder="nome@empresa.com"
               required
-              className="w-full bg-slate-950 border border-slate-800 focus:border-orange-500 rounded-2xl px-4 py-3 text-white text-xs outline-none transition font-medium"
+              className="w-full bg-slate-100 dark:bg-black/20 border border-slate-200 dark:border-white/5 focus:border-cyan-500 dark:focus:border-cyan-400 focus:bg-white rounded-2xl px-4 py-3.5 text-slate-700 dark:text-slate-200 dark:focus:text-slate-800 text-xs outline-none transition-all font-semibold"
             />
           </div>
 
           <div>
-            <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1.5 font-bold">
-              Senha
+            <label className="block text-[10px] uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-1.5 font-bold">
+              Senha secreta
             </label>
             <input 
               type="password" 
@@ -86,7 +86,7 @@ export default function LoginPage() {
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
               required
-              className="w-full bg-slate-950 border border-slate-800 focus:border-orange-500 rounded-2xl px-4 py-3 text-white text-xs outline-none transition font-medium"
+              className="w-full bg-slate-100 dark:bg-black/20 border border-slate-200 dark:border-white/5 focus:border-cyan-500 dark:focus:border-cyan-400 focus:bg-white rounded-2xl px-4 py-3.5 text-slate-700 dark:text-slate-200 dark:focus:text-slate-800 text-xs outline-none transition-all font-semibold"
             />
           </div>
 

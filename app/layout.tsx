@@ -74,7 +74,7 @@ export default function RootLayout({
     router.refresh()
   }
 
-  // Grupos de navegação por setores (Submenus premium)
+  // Grupos de navegação por setores (Submenus premium - paleta de cores ciano/azul)
   const sectors = [
     {
       id: 'comercial',
@@ -115,49 +115,38 @@ export default function RootLayout({
     }
   ]
 
-  const isItemActive = (href: string) => {
-    if (href === '/') return pathname === '/'
-    return pathname.startsWith(href)
-  }
-
   return (
     <html lang="pt-BR" className={theme}>
-      <body className="bg-slate-50/50 dark:bg-[#060a12] text-slate-950 dark:text-slate-100 antialiased transition-colors duration-300 min-h-screen flex flex-col">
+      <body className="bg-[#F1F5F9] dark:bg-[#070c14] text-slate-950 dark:text-slate-100 antialiased transition-colors duration-300 min-h-screen flex flex-col">
         
         {isLoginPage ? (
-          <main className="min-h-screen w-full bg-slate-50">
+          <main className="min-h-screen w-full">
             {children}
           </main>
         ) : (
           <>
-            {/* FUNDO DINÂMICO GRADIENTE INSPIRADO NO MODELO */}
-            <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden bg-gradient-to-br from-slate-50 via-slate-100/50 to-slate-200/30 dark:from-[#080e1a] dark:via-[#0c162b] dark:to-[#050a12]">
-              <div className="absolute top-[-20%] left-[-10%] w-[60%] h-[60%] rounded-full bg-orange-400/10 dark:bg-orange-500/5 blur-[150px] animate-pulse" style={{ animationDuration: '8s' }} />
-              <div className="absolute bottom-[-10%] right-[-10%] w-[60%] h-[60%] rounded-full bg-blue-400/10 dark:bg-indigo-500/5 blur-[150px] animate-pulse" style={{ animationDuration: '10s' }} />
-            </div>
-
-            {/* HEADER SUPERIOR HORIZONTAL DE ALTA FIDELIDADE (GLASSMORPHISM) */}
-            <header className="sticky top-0 z-50 w-full px-6 py-4 flex justify-center pointer-events-none">
-              <div className="w-full max-w-7xl h-16 bg-white/70 dark:bg-[#0c162b]/70 backdrop-blur-xl border border-slate-200/50 dark:border-white/10 rounded-full flex items-center justify-between px-6 shadow-xl shadow-slate-900/5 dark:shadow-black/20 pointer-events-auto relative">
+            {/* HEADER SUPERIOR HORIZONTAL DE ALTA FIDELIDADE (GLASSMORPHISM) COM LARGURA 100% */}
+            <header className="sticky top-0 z-50 w-full px-4 md:px-8 py-4 flex justify-center pointer-events-none">
+              <div className="w-full h-16 bg-white/80 dark:bg-[#0b1426]/75 backdrop-blur-xl border border-slate-200/50 dark:border-white/10 rounded-full flex items-center justify-between px-6 shadow-xl shadow-slate-900/5 dark:shadow-black/20 pointer-events-auto relative">
                 
                 {/* Logo / Home */}
                 <Link href="/" className="flex items-center gap-3 group">
-                  <div className="h-10 w-10 rounded-2xl bg-gradient-to-tr from-orange-500 via-amber-500 to-orange-600 flex items-center justify-center shadow-lg shadow-orange-500/30 dark:shadow-orange-500/15 group-hover:scale-105 transition-transform duration-300">
+                  <div className="h-10 w-10 rounded-2xl bg-gradient-to-tr from-cyan-400 via-blue-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/30 dark:shadow-cyan-500/15 group-hover:scale-105 transition-transform duration-300">
                     <span className="text-white font-black text-base tracking-tighter">3D</span>
                   </div>
                   <div className="flex flex-col">
                     <span className="text-sm font-black tracking-wider text-slate-900 dark:text-white uppercase">GESTÃO 3D</span>
-                    <span className="text-[9px] text-orange-500 dark:text-orange-400 font-extrabold uppercase tracking-widest -mt-0.5">Enterprise OS</span>
+                    <span className="text-[9px] text-cyan-500 dark:text-cyan-400 font-extrabold uppercase tracking-widest -mt-0.5">Enterprise OS</span>
                   </div>
                 </Link>
 
                 {/* Menu de Navegação Horizontal Desktop */}
-                <nav className="hidden lg:flex items-center gap-1.5 bg-slate-100/50 dark:bg-black/20 p-1 rounded-full border border-slate-200/30 dark:border-white/5" ref={dropdownRef}>
+                <nav className="hidden lg:flex items-center gap-1.5 bg-slate-200/40 dark:bg-black/20 p-1 rounded-full border border-slate-200/30 dark:border-white/5" ref={dropdownRef}>
                   <Link 
                     href="/" 
-                    className={`px-4 py-2 text-xs font-black rounded-full transition-all duration-300 ${
+                    className={`px-4 py-2 text-sm font-extrabold rounded-full transition-all duration-300 ${
                       pathname === '/' 
-                        ? 'bg-gradient-to-r from-orange-600 to-amber-600 text-white shadow-lg shadow-orange-600/20' 
+                        ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-lg shadow-cyan-500/20' 
                         : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                     }`}
                   >
@@ -173,7 +162,7 @@ export default function RootLayout({
                         <button
                           onClick={() => setActiveDropdown(isOpen ? null : sector.id)}
                           onMouseEnter={() => setActiveDropdown(sector.id)}
-                          className={`px-4 py-2 text-xs font-black rounded-full transition-all duration-300 flex items-center gap-1.5 outline-none ${
+                          className={`px-4 py-2 text-sm font-extrabold rounded-full transition-all duration-300 flex items-center gap-1.5 outline-none ${
                             isAnyItemActive 
                               ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white border border-slate-200 dark:border-slate-700 shadow-sm' 
                               : isOpen
@@ -200,7 +189,7 @@ export default function RootLayout({
                             >
                               <div className="grid gap-1">
                                 <div className="px-3 py-1.5 mb-1 border-b border-slate-100 dark:border-white/5">
-                                  <span className="text-[10px] font-black text-orange-500 dark:text-orange-400 uppercase tracking-widest">{sector.label}</span>
+                                  <span className="text-xs font-black text-cyan-500 dark:text-cyan-400 uppercase tracking-widest">{sector.label}</span>
                                 </div>
                                 {sector.items.map((item) => {
                                   const isActive = pathname === item.href.split('?')[0]
@@ -219,8 +208,8 @@ export default function RootLayout({
                                         {item.icon}
                                       </span>
                                       <div className="flex flex-col">
-                                        <span className="text-xs font-black tracking-tight group-hover/item:text-orange-500 transition-colors">{item.name}</span>
-                                        <span className="text-[10px] text-slate-400 dark:text-slate-400 font-semibold mt-0.5 leading-snug">{item.desc}</span>
+                                        <span className="text-sm font-extrabold tracking-tight group-hover/item:text-cyan-500 dark:group-hover/item:text-cyan-400 transition-colors">{item.name}</span>
+                                        <span className="text-xs text-slate-400 dark:text-slate-400 font-semibold mt-0.5 leading-snug">{item.desc}</span>
                                       </div>
                                     </Link>
                                   )
@@ -244,7 +233,7 @@ export default function RootLayout({
                     title={theme === 'dark' ? 'Modo Claro' : 'Modo Escuro'}
                   >
                     {theme === 'dark' ? (
-                      <svg className="w-4 h-4 fill-amber-400 stroke-amber-400" viewBox="0 0 24 24">
+                      <svg className="w-4 h-4 fill-cyan-400 stroke-cyan-400" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m12.728 0l-.707-.707M6.343 6.343l-.707-.707M14 12a2 2 0 11-4 0 2 2 0 014 0z" />
                       </svg>
                     ) : (
@@ -260,7 +249,7 @@ export default function RootLayout({
                       onClick={() => setIsProfileOpen(!isProfileOpen)}
                       className="flex items-center gap-2.5 p-1 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800/60 border border-transparent hover:border-slate-200/30 dark:hover:border-white/5 transition-all outline-none"
                     >
-                      <div className="h-9 w-9 rounded-full bg-gradient-to-tr from-orange-500 via-amber-500 to-orange-600 flex items-center justify-center text-white font-black text-sm shadow-md transition-transform hover:scale-105 duration-300">
+                      <div className="h-9 w-9 rounded-full bg-gradient-to-tr from-cyan-400 via-blue-500 to-blue-600 flex items-center justify-center text-white font-black text-sm shadow-md transition-transform hover:scale-105 duration-300">
                         {userName.charAt(0).toUpperCase()}
                       </div>
                       <span className="hidden md:block text-xs font-black text-slate-800 dark:text-slate-200 pr-2">{userName}</span>
@@ -342,7 +331,7 @@ export default function RootLayout({
                       {/* Logo Mobile */}
                       <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-white/5">
                         <div className="flex items-center gap-3">
-                          <div className="h-9 w-9 rounded-xl bg-gradient-to-tr from-orange-500 to-amber-500 flex items-center justify-center shadow-md">
+                          <div className="h-9 w-9 rounded-xl bg-gradient-to-tr from-cyan-400 to-blue-600 flex items-center justify-center shadow-md">
                             <span className="text-white font-black text-xs">3D</span>
                           </div>
                           <span className="text-xs font-black tracking-wider text-slate-900 dark:text-white uppercase">GESTÃO 3D</span>
@@ -360,9 +349,9 @@ export default function RootLayout({
                         <Link 
                           href="/" 
                           onClick={() => setIsMobileMenuOpen(false)}
-                          className={`flex items-center gap-3 px-3 py-2.5 rounded-2xl text-xs font-black ${
+                          className={`flex items-center gap-3 px-3 py-2.5 rounded-2xl text-sm font-extrabold ${
                             pathname === '/' 
-                              ? 'bg-gradient-to-r from-orange-600 to-amber-600 text-white shadow-lg' 
+                              ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-lg' 
                               : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/40'
                           }`}
                         >
@@ -371,7 +360,7 @@ export default function RootLayout({
 
                         {sectors.map((sector) => (
                           <div key={sector.id} className="space-y-2">
-                            <span className="text-[10px] font-black text-orange-500 dark:text-orange-400 uppercase tracking-widest block px-3">
+                            <span className="text-xs font-black text-cyan-500 dark:text-cyan-400 uppercase tracking-widest block px-3">
                               {sector.label}
                             </span>
                             <div className="grid gap-1 pl-2 border-l border-slate-100 dark:border-white/5">
@@ -382,9 +371,9 @@ export default function RootLayout({
                                     key={item.name}
                                     href={item.href}
                                     onClick={() => setIsMobileMenuOpen(false)}
-                                    className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition-all ${
+                                    className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm font-bold transition-all ${
                                       isActive 
-                                        ? 'bg-slate-100 dark:bg-slate-800/60 text-slate-900 dark:text-white font-black' 
+                                        ? 'bg-slate-100 dark:bg-slate-800/60 text-slate-900 dark:text-white font-extrabold' 
                                         : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                                     }`}
                                   >
@@ -402,7 +391,7 @@ export default function RootLayout({
                     {/* Rodapé Mobile */}
                     <div className="pt-4 border-t border-slate-100 dark:border-white/5 flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <div className="h-8 w-8 rounded-full bg-orange-500 flex items-center justify-center text-white font-black text-xs">
+                        <div className="h-8 w-8 rounded-full bg-cyan-500 flex items-center justify-center text-white font-black text-xs">
                           {userName.charAt(0).toUpperCase()}
                         </div>
                         <span className="text-xs font-black text-slate-800 dark:text-slate-200">{userName}</span>
@@ -420,8 +409,8 @@ export default function RootLayout({
               )}
             </AnimatePresence>
 
-            {/* CONTEÚDO PRINCIPAL CENTRALIZADO DE ALTA GAMA */}
-            <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 relative z-10 overflow-hidden">
+            {/* CONTEÚDO PRINCIPAL COM LARGURA 100% REAL DE ACORDO COM O MODELO */}
+            <main className="flex-1 w-full max-w-[100vw] px-4 md:px-8 py-4 relative z-10 overflow-hidden">
               {children}
             </main>
           </>
