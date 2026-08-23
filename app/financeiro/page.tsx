@@ -1,8 +1,11 @@
 'use client'
 
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo, Suspense } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import Link from 'next/link'
+import ConfirmModal from '@/app/components/ConfirmModal'
+import AlertModal from '@/app/components/AlertModal'
+import { useSearchParams, useRouter } from 'next/navigation'
 import Calendar from 'react-calendar'
 import 'react-calendar/dist/Calendar.css'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -77,6 +80,24 @@ type SaleItem = {
   qtdIndoParaProducao?: number
 }
 
+type BankAccount = {
+  id: string
+  name: string
+  bank_name?: string
+  type: string
+  balance: number
+  created_at?: string
+}
+
+type FinancialBudget = {
+  id: string
+  month: string
+  target_revenue: number
+  target_expense: number
+  target_fixed_cost: number
+  created_at?: string
+}
+
 const CATEGORIAS_RECEITA = [
   'Vendas',
   'Serviços de Impressão Sob Demanda',
@@ -104,13 +125,34 @@ const CATEGORIAS_CUSTO_FIXO = [
   'Outros Custos Fixos'
 ]
 
-export default function FinanceiroPage() {
+function FinanceiroPageContent() {
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const activeTab = searchParams.get('tab') || 'fluxo'
+
   const [fixedCosts, setFixedCosts] = useState<FixedCost[]>([])
+
+  // Estados para novas modais customizadas
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {}
+  })
+  
+  const [alertModal, setAlertModal] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    type: 'info' as 'success' | 'error' | 'info'
+  })
   const [selectedSaleDetail, setSelectedSaleDetail] = useState<any | null>(null)
   const [loadingSaleDetail, setLoadingSaleDetail] = useState(false)
   const [showSaleModal, setShowSaleModal] = useState(false)
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [products3D, setProducts3D] = useState<Product3D[]>([])
+  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([])
+  const [budgets, setBudgets] = useState<FinancialBudget[]>([])
   const [fetching, setFetching] = useState(true)
   const [sucessoMsg, setSucessoMsg] = useState('')
 
@@ -119,6 +161,26 @@ export default function FinanceiroPage() {
     const today = new Date()
     return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
   })
+
+  // States para cadastrar nova conta bancária
+  const [bankNameInput, setBankNameInput] = useState('')
+  const [accountNameInput, setAccountNameInput] = useState('')
+  const [accountTypeInput, setAccountTypeInput] = useState('Corrente')
+  const [initialBalanceInput, setInitialBalanceInput] = useState<number>(0)
+  const [loadingAddAccount, setLoadingAddAccount] = useState(false)
+
+  // States para metas/orçamentos do DRE
+  const [targetRevenue, setTargetRevenue] = useState<number>(0)
+  const [targetExpense, setTargetExpense] = useState<number>(0)
+  const [targetFixedCost, setTargetFixedCost] = useState<number>(0)
+  const [loadingBudget, setLoadingBudget] = useState(false)
+
+  // Para vincular uma transação a uma conta bancária
+  const [tBankAccountId, setTBankAccountId] = useState('')
+
+  const handleTabChange = (tabId: string) => {
+    router.push(`/financeiro?tab=${tabId}`)
+  }
 
   // States para Custos Fixos
   const [costDescription, setCostDescription] = useState('')
@@ -171,6 +233,35 @@ export default function FinanceiroPage() {
 
       const { data: productsData } = await supabase.from('products_3d').select('id, name, category, suggested_price, weight_g, print_time_hours').order('name', { ascending: true })
       if (productsData) setProducts3D(productsData)
+
+      // Buscar Contas Bancárias (com tratamento de erro silencioso/amigável caso a tabela não exista ainda)
+      try {
+        const { data: accountsData, error: accError } = await supabase.from('bank_accounts').select('*').order('name', { ascending: true })
+        if (!accError && accountsData) setBankAccounts(accountsData)
+      } catch (e) {
+        console.warn('Tabela bank_accounts não encontrada ou inacessível no momento.')
+      }
+
+      // Buscar Orçamentos/Metas (com tratamento de erro silencioso/amigável)
+      try {
+        const { data: budgetsData, error: budError } = await supabase.from('financial_budgets').select('*')
+        if (!budError && budgetsData) {
+          setBudgets(budgetsData)
+          // Se houver orçamento para o mês selecionado, atualizar estados das metas
+          const activeBudget = budgetsData.find(b => b.month === selectedMonth)
+          if (activeBudget) {
+            setTargetRevenue(Number(activeBudget.target_revenue || 0))
+            setTargetExpense(Number(activeBudget.target_expense || 0))
+            setTargetFixedCost(Number(activeBudget.target_fixed_cost || 0))
+          } else {
+            setTargetRevenue(0)
+            setTargetExpense(0)
+            setTargetFixedCost(0)
+          }
+        }
+      } catch (e) {
+        console.warn('Tabela financial_budgets não encontrada ou inacessível no momento.')
+      }
 
     } catch (error: any) {
       console.error('Erro ao buscar dados financeiros:', error.message)
@@ -477,46 +568,72 @@ export default function FinanceiroPage() {
       fetchData()
       setTimeout(() => setSucessoMsg(''), 4000)
     } catch (error: any) {
-      alert('Erro ao salvar custo fixo: ' + error.message)
+      setAlertModal({
+        isOpen: true,
+        title: 'Erro ao Salvar',
+        message: 'Erro ao salvar custo fixo: ' + error.message,
+        type: 'error'
+      })
     } finally {
       setLoadingCost(false)
     }
   }
 
-  const handlePayFixedCostNow = async (cost: FixedCost) => {
-    if (!confirm(`Deseja lançar a despesa "${cost.description}" de ${formatCurrency(cost.amount)} no caixa do mês selecionado (${selectedMonth})?`)) return
+  const handlePayFixedCostNow = (cost: FixedCost) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Lançar Custo Fixo',
+      message: `Deseja lançar a despesa "${cost.description}" de ${formatCurrency(cost.amount)} no caixa do mês selecionado (${selectedMonth})?`,
+      onConfirm: async () => {
+        const payDate = `${selectedMonth}-10`
+        try {
+          const { error } = await supabase.from('financial_transactions').insert([{
+            date: payDate,
+            type: 'Despesa',
+            category: cost.category || 'Outras Despesas',
+            description: `Custo Fixo: ${cost.description}`,
+            amount: cost.amount,
+            status: 'Concluído',
+            payment_method: cost.payment_method || 'Boleto / Pix',
+            payment_status: 'paid'
+          }])
 
-    const payDate = `${selectedMonth}-10`
-    try {
-      const { error } = await supabase.from('financial_transactions').insert([{
-        date: payDate,
-        type: 'Despesa',
-        category: cost.category || 'Outras Despesas',
-        description: `Custo Fixo: ${cost.description}`,
-        amount: cost.amount,
-        status: 'Concluído',
-        payment_method: cost.payment_method || 'Boleto / Pix',
-        payment_status: 'paid'
-      }])
-
-      if (error) throw error
-      setSucessoMsg(`Custo fixo "${cost.description}" registrado nas despesas!`)
-      fetchData()
-      setTimeout(() => setSucessoMsg(''), 4000)
-    } catch (err: any) {
-      alert('Erro ao lançar custo fixo no caixa: ' + err.message)
-    }
+          if (error) throw error
+          setSucessoMsg(`Custo fixo "${cost.description}" registrado nas despesas!`)
+          fetchData()
+          setTimeout(() => setSucessoMsg(''), 4000)
+        } catch (err: any) {
+          setAlertModal({
+            isOpen: true,
+            title: 'Erro ao Lançar',
+            message: 'Erro ao lançar custo fixo no caixa: ' + err.message,
+            type: 'error'
+          })
+        }
+      }
+    })
   }
 
-  const handleDeleteFixedCost = async (id: string) => {
-    if (!confirm('Deseja realmente excluir este custo fixo?')) return
-    try {
-      const { error } = await supabase.from('fixed_costs').delete().eq('id', id)
-      if (error) throw error
-      fetchData()
-    } catch (error: any) {
-      alert('Erro ao excluir: ' + error.message)
-    }
+  const handleDeleteFixedCost = (id: string) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Excluir Custo Fixo',
+      message: 'Deseja realmente excluir este custo fixo?',
+      onConfirm: async () => {
+        try {
+          const { error } = await supabase.from('fixed_costs').delete().eq('id', id)
+          if (error) throw error
+          fetchData()
+        } catch (error: any) {
+          setAlertModal({
+            isOpen: true,
+            title: 'Erro ao Excluir',
+            message: 'Erro ao excluir: ' + error.message,
+            type: 'error'
+          })
+        }
+      }
+    })
   }
 
   const handleAddTransaction = async (e: React.FormEvent) => {
@@ -534,6 +651,8 @@ export default function FinanceiroPage() {
     setLoadingTrans(true)
     setSucessoMsg('')
     try {
+      const targetAccount = tBankAccountId || null
+
       const { error } = await supabase.from('financial_transactions').insert([{
         date: tDate,
         type: tType,
@@ -544,7 +663,149 @@ export default function FinanceiroPage() {
         payment_method: tPaymentMethod,
         due_date: tDueDate || null,
         payment_status: tPaymentStatus,
-        payment_gateway_fee: tPaymentGatewayFee || 0
+        payment_gateway_fee: tPaymentGatewayFee || 0,
+        bank_account_id: targetAccount
+      }])
+
+      if (error) throw error
+
+      // Atualizar saldo da conta bancária se a transação estiver paga
+      if (targetAccount && tPaymentStatus === 'paid') {
+        const account = bankAccounts.find(a => a.id === targetAccount)
+        if (account) {
+          const change = tType === 'Receita' ? tAmount : -tAmount
+          const newBalance = Number(account.balance || 0) + change
+          await supabase.from('bank_accounts').update({ balance: newBalance }).eq('id', targetAccount)
+        }
+      }
+
+      setTDate('')
+      setTType('Receita')
+      setTCategory('')
+      setTDescription('')
+      setTAmount(0)
+      setTQuantity(1)
+      setTPaymentMethod('Pix')
+      setTDueDate('')
+      setTPaymentsStatus('paid')
+      setTPaymentGatewayFee(0)
+      setSelectedProductModel('')
+      setTBankAccountId('')
+      setSucessoMsg('Transação registrada com sucesso!')
+      fetchData()
+      setTimeout(() => setSucessoMsg(''), 4000)
+    } catch (error: any) {
+      setAlertModal({
+        isOpen: true,
+        title: 'Erro ao Salvar',
+        message: 'Erro ao salvar transação: ' + error.message,
+        type: 'error'
+      })
+    } finally {
+      setLoadingTrans(false)
+    }
+  }
+
+  const handleAddDirectTransaction = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!tDescription || !tDate) return
+
+    let finalDescription = tDescription
+    if (tType === 'Receita' && selectedProductModel) {
+      const product = products3D.find(p => p.id === selectedProductModel)
+      if (product) {
+        finalDescription = `Venda: ${product.name} (Qtd: ${tQuantity})`
+      }
+    }
+
+    setLoadingTrans(true)
+    setSucessoMsg('')
+    try {
+      const targetAccount = tBankAccountId || null
+
+      const { error } = await supabase.from('financial_transactions').insert([{
+        date: tDate,
+        type: tType,
+        category: tCategory || 'Geral',
+        description: finalDescription,
+        amount: tAmount,
+        status: 'Concluído',
+        payment_method: tPaymentMethod,
+        due_date: null,
+        payment_status: 'paid',
+        payment_gateway_fee: tPaymentGatewayFee || 0,
+        bank_account_id: targetAccount
+      }])
+
+      if (error) throw error
+
+      // Atualizar saldo da conta bancária
+      if (targetAccount) {
+        const account = bankAccounts.find(a => a.id === targetAccount)
+        if (account) {
+          const change = tType === 'Receita' ? tAmount : -tAmount
+          const newBalance = Number(account.balance || 0) + change
+          await supabase.from('bank_accounts').update({ balance: newBalance }).eq('id', targetAccount)
+        }
+      }
+
+      setTDate('')
+      setTType('Receita')
+      setTCategory('')
+      setTDescription('')
+      setTAmount(0)
+      setTQuantity(1)
+      setTPaymentMethod('Pix')
+      setTDueDate('')
+      setTPaymentsStatus('paid')
+      setTPaymentGatewayFee(0)
+      setSelectedProductModel('')
+      setTBankAccountId('')
+      setSucessoMsg('Lançamento registrado com sucesso no caixa!');
+      fetchData()
+      setTimeout(() => setSucessoMsg(''), 4000)
+    } catch (error: any) {
+      setAlertModal({
+        isOpen: true,
+        title: 'Erro ao Salvar',
+        message: 'Erro ao salvar lançamento de caixa: ' + error.message,
+        type: 'error'
+      })
+    } finally {
+      setLoadingTrans(false)
+    }
+  }
+
+  const handleAddProvision = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!tDescription || !tDate) return
+
+    let finalDescription = tDescription
+    if (tType === 'Receita' && selectedProductModel) {
+      const product = products3D.find(p => p.id === selectedProductModel)
+      if (product) {
+        finalDescription = `Venda: ${product.name} (Qtd: ${tQuantity})`
+      }
+    }
+
+    setLoadingTrans(true)
+    setSucessoMsg('')
+    try {
+      const targetAccount = tBankAccountId || null
+      const finalDueDate = tDueDate || tDate // fallback se não preencher vencimento
+
+      const { error } = await supabase.from('financial_transactions').insert([{
+        date: tDate,
+        type: tType,
+        category: tCategory || 'Geral',
+        description: finalDescription,
+        amount: tAmount,
+        status: 'Pendente',
+        payment_method: tPaymentMethod,
+        due_date: finalDueDate,
+        payment_status: 'pending',
+        payment_gateway_fee: 0,
+        bank_account_id: targetAccount
       }])
 
       if (error) throw error
@@ -560,14 +821,175 @@ export default function FinanceiroPage() {
       setTPaymentsStatus('paid')
       setTPaymentGatewayFee(0)
       setSelectedProductModel('')
-      setSucessoMsg('Transação registrada com sucesso!')
+      setTBankAccountId('')
+      setSucessoMsg('Conta agendada (provisão) cadastrada com sucesso!');
       fetchData()
       setTimeout(() => setSucessoMsg(''), 4000)
     } catch (error: any) {
-      alert('Erro ao salvar transação: ' + error.message)
+      setAlertModal({
+        isOpen: true,
+        title: 'Erro ao Agendar',
+        message: 'Erro ao agendar conta: ' + error.message,
+        type: 'error'
+      })
     } finally {
       setLoadingTrans(false)
     }
+  }
+
+  // Cadastrar nova conta bancária
+  const handleAddBankAccount = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!accountNameInput) return
+
+    setLoadingAddAccount(true)
+    setSucessoMsg('')
+
+    try {
+      const { error } = await supabase.from('bank_accounts').insert([{
+        name: accountNameInput,
+        bank_name: bankNameInput || 'Caixa Geral',
+        type: accountTypeInput,
+        balance: initialBalanceInput || 0.00
+      }])
+
+      if (error) throw error
+
+      setAccountNameInput('')
+      setBankNameInput('')
+      setAccountTypeInput('Corrente')
+      setInitialBalanceInput(0)
+      setSucessoMsg('Conta bancária cadastrada com sucesso!')
+      fetchData()
+      setTimeout(() => setSucessoMsg(''), 4000)
+    } catch (err: any) {
+      setAlertModal({
+        isOpen: true,
+        title: 'Erro ao Salvar',
+        message: 'Erro ao salvar conta bancária: ' + err.message,
+        type: 'error'
+      })
+    } finally {
+      setLoadingAddAccount(false)
+    }
+  }
+
+  // Excluir conta bancária
+  const handleDeleteBankAccount = (id: string) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Excluir Conta Bancária',
+      message: 'Deseja realmente excluir esta conta bancária?',
+      onConfirm: async () => {
+        try {
+          const { error } = await supabase.from('bank_accounts').delete().eq('id', id)
+          if (error) throw error
+          setSucessoMsg('Conta bancária removida!')
+          fetchData()
+          setTimeout(() => setSucessoMsg(''), 4000)
+        } catch (err: any) {
+          setAlertModal({
+            isOpen: true,
+            title: 'Erro ao Excluir',
+            message: 'Erro ao excluir conta: ' + err.message,
+            type: 'error'
+          })
+        }
+      }
+    })
+  }
+
+  // Salvar orçamento / meta de DRE do mês
+  const handleSaveBudget = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoadingBudget(true)
+    setSucessoMsg('')
+
+    try {
+      const { data: existing } = await supabase.from('financial_budgets').select('*').eq('month', selectedMonth).maybeSingle()
+
+      let error = null
+      if (existing) {
+        const { error: errUpdate } = await supabase.from('financial_budgets').update({
+          target_revenue: targetRevenue,
+          target_expense: targetExpense,
+          target_fixed_cost: targetFixedCost
+        }).eq('month', selectedMonth)
+        error = errUpdate
+      } else {
+        const { error: errInsert } = await supabase.from('financial_budgets').insert([{
+          month: selectedMonth,
+          target_revenue: targetRevenue,
+          target_expense: targetExpense,
+          target_fixed_cost: targetFixedCost
+        }])
+        error = errInsert
+      }
+
+      if (error) throw error
+
+      setSucessoMsg('Metas orçamentárias salvas para o mês selecionado!')
+      fetchData()
+      setTimeout(() => setSucessoMsg(''), 4000)
+    } catch (err: any) {
+      setAlertModal({
+        isOpen: true,
+        title: 'Erro ao Salvar',
+        message: 'Erro ao salvar orçamento: ' + err.message,
+        type: 'error'
+      })
+    } finally {
+      setLoadingBudget(false)
+    }
+  }
+
+  // Dar baixa / Concluir transação pendente (Contas a Pagar/Receber)
+  const handlePayTransaction = (tr: Transaction, accountId?: string) => {
+    const act = tr.type === 'Receita' ? 'recebimento' : 'pagamento'
+    const accountMessage = bankAccounts.length > 0 
+      ? ' Você pode selecionar a conta bancária para lançar o valor ou confirmar para usar a conta padrão.' 
+      : ''
+
+    setConfirmModal({
+      isOpen: true,
+      title: 'Dar Baixa em Lançamento',
+      message: `Confirmar o ${act} de "${tr.description}" no valor de ${formatCurrency(tr.amount)}?${accountMessage}`,
+      onConfirm: async () => {
+        try {
+          // 1. Atualizar transação para paga ('paid' / 'Concluído')
+          const targetAccount = accountId || bankAccounts[0]?.id || null
+
+          const { error } = await supabase.from('financial_transactions').update({
+            payment_status: 'paid',
+            status: 'Concluído',
+            bank_account_id: targetAccount
+          }).eq('id', tr.id)
+
+          if (error) throw error
+
+          // 2. Se houver uma conta bancária vinculada, vamos atualizar o saldo dela
+          if (targetAccount) {
+            const account = bankAccounts.find(a => a.id === targetAccount)
+            if (account) {
+              const change = tr.type === 'Receita' ? tr.amount : -tr.amount
+              const newBalance = Number(account.balance || 0) + change
+              await supabase.from('bank_accounts').update({ balance: newBalance }).eq('id', targetAccount)
+            }
+          }
+
+          setSucessoMsg('Lançamento efetuado com sucesso!')
+          fetchData()
+          setTimeout(() => setSucessoMsg(''), 4000)
+        } catch (err: any) {
+          setAlertModal({
+            isOpen: true,
+            title: 'Erro ao Dar Baixa',
+            message: 'Erro ao dar baixa na transação: ' + err.message,
+            type: 'error'
+          })
+        }
+      }
+    })
   }
 
   const formatCurrency = (val: number) => {
@@ -590,12 +1012,15 @@ export default function FinanceiroPage() {
     setShowCalendar(false)
   }
 
-  const filteredTransactions = monthFilteredTransactions.filter(tr => {
-    const matchesSearch = tr.description.toLowerCase().includes(searchTrans.toLowerCase()) || 
-                          (tr.category && tr.category.toLowerCase().includes(searchTrans.toLowerCase()))
-    const matchesType = filterType === 'Todos' || tr.type === filterType
-    return matchesSearch && matchesType
-  })
+  const filteredTransactions = useMemo(() => {
+    const realized = monthFilteredTransactions.filter(t => t.payment_status === 'paid' || t.status === 'Concluído')
+    return realized.filter(tr => {
+      const matchesSearch = tr.description.toLowerCase().includes(searchTrans.toLowerCase()) || 
+                            (tr.category && tr.category.toLowerCase().includes(searchTrans.toLowerCase()))
+      const matchesType = filterType === 'Todos' || tr.type === filterType
+      return matchesSearch && matchesType
+    })
+  }, [monthFilteredTransactions, searchTrans, filterType])
 
   const filteredFixedCosts = monthFilteredFixedCosts.filter(cost => {
     return cost.description.toLowerCase().includes(searchCost.toLowerCase()) || 
@@ -663,7 +1088,36 @@ export default function FinanceiroPage() {
         )}
       </AnimatePresence>
 
-      {/* CARDS DE RESUMO FINANCEIRO */}
+      {/* NAVEGAÇÃO DE ABAS FINANCEIRAS */}
+      <div className="flex flex-wrap items-center gap-2 bg-white dark:bg-slate-900 p-2 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+        {[
+          { id: 'fluxo', label: 'Fluxo de Caixa', icon: DollarSign },
+          { id: 'provisoes', label: 'Contas a Pagar / Receber', icon: CalendarIcon },
+          { id: 'dre', label: 'DRE & Relatórios', icon: BarChart3 },
+          { id: 'contas', label: 'Contas Bancárias', icon: CreditCard },
+        ].map((tab) => {
+          const TabIcon = tab.icon
+          const isActive = activeTab === tab.id
+          return (
+            <button
+              key={tab.id}
+              onClick={() => handleTabChange(tab.id)}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                isActive
+                  ? 'bg-orange-500 text-white shadow-md shadow-orange-500/20'
+                  : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+              }`}
+            >
+              <TabIcon className="w-4 h-4" />
+              {tab.label}
+            </button>
+          )
+        })}
+      </div>
+
+      {activeTab === 'fluxo' && (
+        <>
+          {/* CARDS DE RESUMO FINANCEIRO */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         {[
           { title: `Receitas (${selectedMonth})`, value: formatCurrency(totalReceitas), color: 'text-emerald-600 dark:text-emerald-400', icon: TrendingUp },
@@ -841,193 +1295,13 @@ export default function FinanceiroPage() {
 
       </div>
 
-      {/* SEÇÃO DE CUSTOS FIXOS */}
-      <div className="space-y-6 pt-4 border-t border-slate-200 dark:border-slate-800">
-        
-        {/* FORMULÁRIO DE CUSTOS FIXOS */}
-        <form onSubmit={handleAddFixedCost} className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
-          <h2 className="text-base font-extrabold text-slate-900 dark:text-white mb-2 flex items-center gap-2">
-            <Settings className="w-5 h-5 text-orange-500" /> Novo Custo Fixo Mensal (A partir de {selectedMonth})
-          </h2>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-            
-            <div className="lg:col-span-2">
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Descrição do Custo</label>
-              <input 
-                type="text" 
-                value={costDescription} 
-                onChange={(e) => setCostDescription(e.target.value)} 
-                placeholder="Ex: Aluguel da Oficina / Fusion 360"
-                required
-                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 text-xs text-slate-900 dark:text-white outline-none focus:border-orange-500 font-medium"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Categoria</label>
-              <select 
-                value={costCategory} 
-                onChange={(e) => setCostCategory(e.target.value)}
-                required
-                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 text-xs text-slate-900 dark:text-white outline-none focus:border-orange-500 font-medium"
-              >
-                <option value="">Selecione...</option>
-                {CATEGORIAS_CUSTO_FIXO.map((cat) => (
-                  <option key={cat} value={cat}>{cat}</option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Dia de Vencimento</label>
-              <input 
-                type="number" 
-                min="1" 
-                max="31"
-                value={costDueDay || ''} 
-                onChange={(e) => setCostDueDay(Number(e.target.value))} 
-                placeholder="Ex: 10"
-                required
-                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 text-xs text-slate-900 dark:text-white outline-none focus:border-orange-500 font-bold"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Forma de Pagamento</label>
-              <select 
-                value={costPaymentMethod} 
-                onChange={(e) => setCostPaymentMethod(e.target.value)}
-                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 text-xs text-slate-900 dark:text-white outline-none focus:border-orange-500 font-medium"
-              >
-                <option value="Boleto / Pix">Boleto / Pix</option>
-                <option value="Cartão de Crédito">Cartão de Crédito</option>
-                <option value="Débito Automático">Débito Automático</option>
-                <option value="Transferência">Transferência</option>
-              </select>
-            </div>
-
-            <div className="lg:col-span-2">
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Valor Mensal (R$)</label>
-              <input 
-                type="number" 
-                step="0.01"
-                value={costAmount || ''} 
-                onChange={(e) => setCostAmount(Number(e.target.value))} 
-                placeholder="900.00"
-                required
-                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 text-xs text-slate-900 dark:text-white outline-none focus:border-orange-500 font-bold"
-              />
-            </div>
-          </div>
-
-          <div className="flex justify-end pt-2">
-            <button 
-              type="submit" 
-              disabled={loadingCost}
-              className="px-6 py-3 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold transition shadow-sm disabled:opacity-50 flex items-center gap-2 cursor-pointer"
-            >
-              <PlusCircle className="w-4 h-4" /> {loadingCost ? 'Salvando...' : 'Adicionar Custo Fixo'}
-            </button>
-          </div>
-        </form>
-
-        {/* TABELA DE CUSTOS FIXOS */}
-        <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-          <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-            <div>
-              <h2 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
-                <FileText className="w-5 h-5 text-orange-500" /> Custos Fixos em Atividade ({selectedMonth})
-              </h2>
-              <span className="text-xs text-slate-400">Exibindo apenas custos vigentes até o mês selecionado</span>
-            </div>
-            <div className="relative w-full sm:w-64">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-              <input 
-                type="text"
-                placeholder="Pesquisar custo fixo..."
-                value={searchCost}
-                onChange={(e) => setSearchCost(e.target.value)}
-                className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-900 dark:text-white outline-none focus:border-orange-500 w-full"
-              />
-            </div>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[750px] text-left border-collapse">
-              <thead>
-                <tr className="bg-slate-50 dark:bg-slate-950 text-slate-400 text-[10px] font-extrabold uppercase tracking-wider border-b border-slate-200 dark:border-slate-800">
-                  <th className="p-4 pl-6">Descrição</th>
-                  <th className="p-4">Categoria</th>
-                  <th className="p-4">Vencimento</th>
-                  <th className="p-4">Forma de Pagamento</th>
-                  <th className="p-4">Ativo Desde</th>
-                  <th className="p-4">Valor Mensal</th>
-                  <th className="p-4 pr-6 text-center">Ações</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 text-xs text-slate-600 dark:text-slate-300">
-                {fetching ? (
-                  <tr>
-                    <td colSpan={7} className="p-8 text-center text-slate-400">
-                      Carregando custos fixos...
-                    </td>
-                  </tr>
-                ) : filteredFixedCosts.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="p-8 text-center text-slate-400 dark:text-slate-500">
-                      Nenhum custo fixo vigente encontrado para {selectedMonth}.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredFixedCosts.map((cost) => (
-                    <tr key={cost.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition">
-                      <td className="p-4 pl-6 font-bold text-slate-900 dark:text-white">{cost.description}</td>
-                      <td className="p-4 text-slate-500 dark:text-slate-400">{cost.category || 'Geral'}</td>
-                      <td className="p-4 whitespace-nowrap font-medium text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
-                        <CalendarIcon className="w-3.5 h-3.5 text-orange-500" /> Todo dia {cost.due_day || 10}
-                      </td>
-                      <td className="p-4 whitespace-nowrap">
-                        <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 flex items-center gap-1 w-max">
-                          <CreditCard className="w-3 h-3 text-slate-400" /> {cost.payment_method || 'Boleto / Pix'}
-                        </span>
-                      </td>
-                      <td className="p-4 text-slate-400 text-[11px] font-medium whitespace-nowrap">
-                        {cost.created_at ? formatDateDisplay(cost.created_at.substring(0, 10)) : 'Início'}
-                      </td>
-                      <td className="p-4 font-extrabold text-rose-600 dark:text-rose-400 whitespace-nowrap">{formatCurrency(cost.amount)}</td>
-                      <td className="p-4 pr-6 text-center whitespace-nowrap flex items-center justify-center gap-1.5">
-                        <button 
-                          onClick={() => handlePayFixedCostNow(cost)}
-                          title={`Lançar como despesa no caixa de ${selectedMonth}`}
-                          className="text-slate-400 hover:text-emerald-500 transition p-2 rounded-xl hover:bg-emerald-500/10 inline-flex items-center justify-center cursor-pointer"
-                        >
-                          <Check className="w-4 h-4" />
-                        </button>
-                        <button 
-                          onClick={() => handleDeleteFixedCost(cost.id)}
-                          title="Excluir Custo Fixo"
-                          className="text-slate-400 hover:text-rose-500 transition p-2 rounded-xl hover:bg-rose-500/10 inline-flex items-center justify-center cursor-pointer"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
-      {/* SEÇÃO DE TRANSAÇÕES FINANCEIRAS */}
+      {/* SEÇÃO DE TRANSAÇÕES FINANCEIRAS (Lançamento de Caixa Direto) */}
       <div className="space-y-6 pt-6 border-t border-slate-200 dark:border-slate-800">
         
         {/* FORMULÁRIO DE TRANSAÇÃO */}
-        <form onSubmit={handleAddTransaction} className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4 relative">
+        <form onSubmit={handleAddDirectTransaction} className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4 relative">
           <h2 className="text-base font-extrabold text-slate-900 dark:text-white mb-2 flex items-center gap-2">
-            <DollarSign className="w-5 h-5 text-orange-500" /> Nova Transação (Fluxo de Caixa)
+            <DollarSign className="w-5 h-5 text-orange-500" /> Novo Lançamento Rápido (Entrada / Saída de Caixa)
           </h2>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1176,28 +1450,6 @@ export default function FinanceiroPage() {
               </select>
             </div>
 
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Data de Vencimento</label>
-              <input 
-                type="date" 
-                value={tDueDate} 
-                onChange={(e) => setTDueDate(e.target.value)} 
-                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 text-xs text-slate-900 dark:text-white outline-none focus:border-orange-500 font-medium"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Status de Pagamento</label>
-              <select 
-                value={tPaymentStatus} 
-                onChange={(e) => setTPaymentsStatus(e.target.value as 'pending' | 'paid' | 'cancelled')}
-                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 text-xs text-slate-900 dark:text-white outline-none focus:border-orange-500 font-medium"
-              >
-                <option value="paid">Pago</option>
-                <option value="pending">Pendente</option>
-                <option value="cancelled">Cancelado</option>
-              </select>
-            </div>
 
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Taxa de Gateway (R$)</label>
@@ -1210,6 +1462,24 @@ export default function FinanceiroPage() {
                 className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 text-xs text-slate-900 dark:text-white outline-none focus:border-orange-500 font-medium"
               />
             </div>
+
+            {bankAccounts.length > 0 && (
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Conta Bancária</label>
+                <select
+                  value={tBankAccountId}
+                  onChange={(e) => setTBankAccountId(e.target.value)}
+                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 text-xs text-slate-900 dark:text-white outline-none focus:border-orange-500 font-medium"
+                >
+                  <option value="">Selecione a conta...</option>
+                  {bankAccounts.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.name} (Saldo: {formatCurrency(account.balance)})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
 
           <div className="flex justify-end pt-2">
@@ -1343,6 +1613,809 @@ export default function FinanceiroPage() {
           </div>
         </div>
       </div>
+        </>
+      )}
+
+      {/* ABA DE PROVISÕES (Contas a Pagar / Receber) */}
+      {activeTab === 'provisoes' && (
+        <div className="space-y-6">
+          {/* CARDS DE RESUMO DE PROVISÕES */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {[
+              {
+                title: 'Total a Receber Pendente',
+                value: formatCurrency(
+                  transactions
+                    .filter(t => t.type === 'Receita' && (t.payment_status === 'pending' || t.status === 'Pendente'))
+                    .reduce((acc, t) => acc + Number(t.amount || 0), 0)
+                ),
+                color: 'text-emerald-500',
+                icon: TrendingUp,
+                desc: 'Receitas agendadas/pendentes de pagamento'
+              },
+              {
+                title: 'Total a Pagar Pendente',
+                value: formatCurrency(
+                  transactions
+                    .filter(t => t.type === 'Despesa' && (t.payment_status === 'pending' || t.status === 'Pendente'))
+                    .reduce((acc, t) => acc + Number(t.amount || 0), 0)
+                ),
+                color: 'text-rose-500',
+                icon: TrendingDown,
+                desc: 'Despesas registradas aguardando quitação'
+              },
+              {
+                title: 'Saldo de Provisão Projetado',
+                value: formatCurrency(
+                  transactions
+                    .filter(t => t.type === 'Receita' && (t.payment_status === 'pending' || t.status === 'Pendente'))
+                    .reduce((acc, t) => acc + Number(t.amount || 0), 0) -
+                  transactions
+                    .filter(t => t.type === 'Despesa' && (t.payment_status === 'pending' || t.status === 'Pendente'))
+                    .reduce((acc, t) => acc + Number(t.amount || 0), 0)
+                ),
+                color: 'text-orange-500',
+                icon: Wallet,
+                desc: 'Saldo estimado após conciliação das pendências'
+              }
+            ].map((card, idx) => {
+              const IconComp = card.icon
+              return (
+                <div key={idx} className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-3 relative overflow-hidden">
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">{card.title}</span>
+                    <div className="p-2 rounded-xl bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
+                      <IconComp className="w-4 h-4" />
+                    </div>
+                  </div>
+                  <h3 className={`text-2xl sm:text-3xl font-black ${card.color}`}>{card.value}</h3>
+                  <p className="text-[10px] text-slate-400 font-medium">{card.desc}</p>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* FORMULÁRIO DE AGENDAMENTO (Contas a Pagar / Receber) */}
+          <form onSubmit={handleAddProvision} className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4 relative">
+            <h2 className="text-base font-extrabold text-slate-900 dark:text-white mb-2 flex items-center gap-2">
+              <CalendarIcon className="w-5 h-5 text-orange-500" /> Agendar Nova Conta (A Pagar / Receber)
+            </h2>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              
+              <div className="relative" ref={calendarRef}>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Data Lançamento</label>
+                <div 
+                  onClick={() => setShowCalendar(!showCalendar)}
+                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 text-xs text-slate-900 dark:text-white cursor-pointer flex justify-between items-center hover:border-orange-500 transition font-medium"
+                >
+                  <span>{formatDateDisplay(tDate)}</span>
+                  <CalendarIcon className="w-4 h-4 text-slate-400" />
+                </div>
+
+                <AnimatePresence>
+                  {showCalendar && (
+                    <motion.div 
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 10 }}
+                      className="absolute z-50 mt-2 p-3 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl"
+                    >
+                      <Calendar 
+                        onChange={handleDateChange} 
+                        value={tDate ? new Date(tDate + 'T00:00:00') : new Date()}
+                        locale="pt-BR"
+                        className="text-slate-900 dark:text-white border-none rounded-xl text-xs"
+                      />
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Tipo</label>
+                <select 
+                  value={tType} 
+                  onChange={(e) => {
+                    setTType(e.target.value)
+                    setTCategory('')
+                    if (e.target.value !== 'Receita') {
+                      setSelectedProductModel('')
+                      setTQuantity(1)
+                    }
+                  }}
+                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 text-xs text-slate-900 dark:text-white outline-none focus:border-orange-500 font-medium"
+                >
+                  <option value="Receita">A Receber (Receita)</option>
+                  <option value="Despesa">A Pagar (Despesa)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Categoria</label>
+                <select 
+                  value={tCategory} 
+                  onChange={(e) => {
+                    setTCategory(e.target.value)
+                    if (e.target.value !== 'Vendas') {
+                      setSelectedProductModel('')
+                      setTQuantity(1)
+                    }
+                  }}
+                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 text-xs text-slate-900 dark:text-white outline-none focus:border-orange-500 font-medium"
+                >
+                  <option value="">Selecione a categoria...</option>
+                  {currentCategories.map((cat) => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </div>
+
+              {tCategory === 'Vendas' && (
+                <div className="md:col-span-3 bg-orange-500/5 border border-orange-500/20 p-4 rounded-2xl space-y-3">
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+                    <div className="md:col-span-3 space-y-1">
+                      <label className="block text-xs font-bold uppercase tracking-wider text-orange-600 dark:text-orange-400 flex items-center gap-1.5">
+                        <Package className="w-4 h-4" /> Puxar Modelo do Catálogo (Projetos / Produtos 3D)
+                      </label>
+                      <select
+                        value={selectedProductModel}
+                        onChange={(e) => handleSelectProductModel(e.target.value)}
+                        className="w-full bg-white dark:bg-slate-950 border border-orange-500/30 rounded-xl p-3 text-xs text-slate-900 dark:text-white outline-none font-medium"
+                      >
+                        <option value="">Selecione um modelo cadastrado...</option>
+                        {products3D.map((prod) => (
+                          <option key={prod.id} value={prod.id}>
+                            {prod.name} — {formatCurrency(prod.suggested_price)} (Unitário)
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="block text-xs font-bold uppercase tracking-wider text-orange-600 dark:text-orange-400">
+                        Quantidade
+                      </label>
+                      <input 
+                        type="number"
+                        min="1"
+                        value={tQuantity}
+                        onChange={(e) => handleQuantityChange(Number(e.target.value))}
+                        className="w-full bg-white dark:bg-slate-950 border border-orange-500/30 rounded-xl p-3 text-xs text-slate-900 dark:text-white outline-none font-bold"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="md:col-span-2">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Descrição</label>
+                <input 
+                  type="text" 
+                  value={tDescription} 
+                  onChange={(e) => setTDescription(e.target.value)} 
+                  placeholder="Ex: Pagamento de cliente pendente / Compra de insumos agendada"
+                  required
+                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 text-xs text-slate-900 dark:text-white outline-none focus:border-orange-500 font-medium"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Valor (R$)</label>
+                <input 
+                  type="number" 
+                  step="0.01"
+                  value={tAmount || ''} 
+                  onChange={(e) => setTAmount(Number(e.target.value))} 
+                  placeholder="50.00"
+                  required
+                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 text-xs text-slate-900 dark:text-white outline-none focus:border-orange-500 font-bold"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Método Proposto</label>
+                <select 
+                  value={tPaymentMethod} 
+                  onChange={(e) => setTPaymentMethod(e.target.value)}
+                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 text-xs text-slate-900 dark:text-white outline-none focus:border-orange-500 font-medium"
+                >
+                  <option value="Pix">Pix</option>
+                  <option value="Cartão de Crédito">Cartão de Crédito</option>
+                  <option value="Boleto">Boleto</option>
+                  <option value="Dinheiro">Dinheiro</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Data de Vencimento</label>
+                <input 
+                  type="date" 
+                  value={tDueDate} 
+                  onChange={(e) => setTDueDate(e.target.value)} 
+                  required
+                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 text-xs text-slate-900 dark:text-white outline-none focus:border-orange-500 font-bold"
+                />
+              </div>
+
+              {bankAccounts.length > 0 && (
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Conta Estimada (Opcional)</label>
+                  <select
+                    value={tBankAccountId}
+                    onChange={(e) => setTBankAccountId(e.target.value)}
+                    className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 text-xs text-slate-900 dark:text-white outline-none focus:border-orange-500 font-medium"
+                  >
+                    <option value="">Selecione a conta...</option>
+                    {bankAccounts.map((account) => (
+                      <option key={account.id} value={account.id}>
+                        {account.name} (Saldo: {formatCurrency(account.balance)})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <button 
+                type="submit" 
+                disabled={loadingTrans}
+                className="px-6 py-3 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold transition shadow-sm disabled:opacity-50 flex items-center gap-2 cursor-pointer"
+              >
+                <PlusCircle className="w-4 h-4" /> {loadingTrans ? 'Agendando...' : 'Agendar Nova Conta'}
+              </button>
+            </div>
+          </form>
+
+          {/* TABELA DE PROVISÕES */}
+          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+            <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center">
+              <div>
+                <h2 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                  <CalendarIcon className="w-5 h-5 text-orange-500" /> Agenda Financeira & Provisões
+                </h2>
+                <span className="text-xs text-slate-400">Listagem de lançamentos futuros pendentes de baixa comercial</span>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[850px] text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 dark:bg-slate-950 text-slate-400 text-[10px] font-extrabold uppercase tracking-wider border-b border-slate-200 dark:border-slate-800">
+                    <th className="p-4 pl-6">Data Lançamento</th>
+                    <th className="p-4">Tipo</th>
+                    <th className="p-4">Descrição</th>
+                    <th className="p-4">Categoria</th>
+                    <th className="p-4">Vencimento</th>
+                    <th className="p-4">Forma Proposta</th>
+                    <th className="p-4">Valor</th>
+                    <th className="p-4 pr-6 text-center">Dar Baixa</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 text-xs text-slate-600 dark:text-slate-300">
+                  {transactions.filter(t => t.payment_status === 'pending' || t.status === 'Pendente').length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="p-8 text-center text-slate-400 dark:text-slate-500 font-bold">
+                        Nenhuma conta a pagar ou receber pendente no momento! Tudo em dia!
+                      </td>
+                    </tr>
+                  ) : (
+                    transactions
+                      .filter(t => t.payment_status === 'pending' || t.status === 'Pendente')
+                      .map((tr) => (
+                        <tr key={tr.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition">
+                          <td className="p-4 pl-6 whitespace-nowrap text-slate-400">{formatDateDisplay(tr.date)}</td>
+                          <td className="p-4 whitespace-nowrap">
+                            <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${tr.type === 'Receita' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-rose-500/10 text-rose-500'}`}>
+                              {tr.type === 'Receita' ? 'A Receber' : 'A Pagar'}
+                            </span>
+                          </td>
+                          <td className="p-4 font-bold text-slate-900 dark:text-white">{tr.description}</td>
+                          <td className="p-4 text-slate-400">{tr.category || 'Geral'}</td>
+                          <td className="p-4 whitespace-nowrap text-orange-500 font-bold">{tr.due_date ? formatDateDisplay(tr.due_date) : 'Imediato'}</td>
+                          <td className="p-4 whitespace-nowrap font-medium">{tr.payment_method || 'Pix / Boleto'}</td>
+                          <td className={`p-4 font-black whitespace-nowrap ${tr.type === 'Receita' ? 'text-emerald-500' : 'text-rose-500'}`}>
+                            {formatCurrency(tr.amount)}
+                          </td>
+                          <td className="p-4 pr-6 text-center whitespace-nowrap">
+                            <button
+                              onClick={() => handlePayTransaction(tr)}
+                              className="px-3 py-1.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-[10px] font-black uppercase tracking-wider transition cursor-pointer flex items-center gap-1 mx-auto"
+                            >
+                              <Check className="w-3.5 h-3.5" /> Liquidar
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* SEÇÃO DE CUSTOS FIXOS */}
+          <div className="space-y-6 pt-6 border-t border-slate-200 dark:border-slate-800">
+            
+            {/* FORMULÁRIO DE CUSTOS FIXOS */}
+            <form onSubmit={handleAddFixedCost} className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+              <h2 className="text-base font-extrabold text-slate-900 dark:text-white mb-2 flex items-center gap-2">
+                <Settings className="w-5 h-5 text-orange-500" /> Novo Custo Fixo Mensal (A partir de {selectedMonth})
+              </h2>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+                
+                <div className="lg:col-span-2">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Descrição do Custo</label>
+                  <input 
+                    type="text" 
+                    value={costDescription} 
+                    onChange={(e) => setCostDescription(e.target.value)} 
+                    placeholder="Ex: Aluguel da Oficina / Fusion 360"
+                    required
+                    className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 text-xs text-slate-900 dark:text-white outline-none focus:border-orange-500 font-medium"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Categoria</label>
+                  <select 
+                    value={costCategory} 
+                    onChange={(e) => setCostCategory(e.target.value)}
+                    required
+                    className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 text-xs text-slate-900 dark:text-white outline-none focus:border-orange-500 font-medium"
+                  >
+                    <option value="">Selecione...</option>
+                    {CATEGORIAS_CUSTO_FIXO.map((cat) => (
+                      <option key={cat} value={cat}>{cat}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Dia de Vencimento</label>
+                  <input 
+                    type="number" 
+                    min="1" 
+                    max="31"
+                    value={costDueDay || ''} 
+                    onChange={(e) => setCostDueDay(Number(e.target.value))} 
+                    placeholder="Ex: 10"
+                    required
+                    className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 text-xs text-slate-900 dark:text-white outline-none focus:border-orange-500 font-bold"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Forma de Pagamento</label>
+                  <select 
+                    value={costPaymentMethod} 
+                    onChange={(e) => setCostPaymentMethod(e.target.value)}
+                    className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 text-xs text-slate-900 dark:text-white outline-none focus:border-orange-500 font-medium"
+                  >
+                    <option value="Boleto / Pix">Boleto / Pix</option>
+                    <option value="Cartão de Crédito">Cartão de Crédito</option>
+                    <option value="Débito Automático">Débito Automático</option>
+                    <option value="Transferência">Transferência</option>
+                  </select>
+                </div>
+
+                <div className="lg:col-span-2">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Valor Mensal (R$)</label>
+                  <input 
+                    type="number" 
+                    step="0.01"
+                    value={costAmount || ''} 
+                    onChange={(e) => setCostAmount(Number(e.target.value))} 
+                    placeholder="900.00"
+                    required
+                    className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 text-xs text-slate-900 dark:text-white outline-none focus:border-orange-500 font-bold"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end pt-2">
+                <button 
+                  type="submit" 
+                  disabled={loadingCost}
+                  className="px-6 py-3 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold transition shadow-sm disabled:opacity-50 flex items-center gap-2 cursor-pointer"
+                >
+                  <PlusCircle className="w-4 h-4" /> {loadingCost ? 'Salvando...' : 'Adicionar Custo Fixo'}
+                </button>
+              </div>
+            </form>
+
+            {/* TABELA DE CUSTOS FIXOS */}
+            <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+              <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div>
+                  <h2 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                    <FileText className="w-5 h-5 text-orange-500" /> Custos Fixos em Atividade ({selectedMonth})
+                  </h2>
+                  <span className="text-xs text-slate-400">Exibindo apenas custos vigentes até o mês selecionado</span>
+                </div>
+                <div className="relative w-full sm:w-64">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                  <input 
+                    type="text"
+                    placeholder="Pesquisar custo fixo..."
+                    value={searchCost}
+                    onChange={(e) => setSearchCost(e.target.value)}
+                    className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-900 dark:text-white outline-none focus:border-orange-500 w-full"
+                  />
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[750px] text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50 dark:bg-slate-950 text-slate-400 text-[10px] font-extrabold uppercase tracking-wider border-b border-slate-200 dark:border-slate-800">
+                      <th className="p-4 pl-6">Descrição</th>
+                      <th className="p-4">Categoria</th>
+                      <th className="p-4">Vencimento</th>
+                      <th className="p-4">Forma de Pagamento</th>
+                      <th className="p-4">Ativo Desde</th>
+                      <th className="p-4">Valor Mensal</th>
+                      <th className="p-4 pr-6 text-center">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 text-xs text-slate-600 dark:text-slate-300">
+                    {fetching ? (
+                      <tr>
+                        <td colSpan={7} className="p-8 text-center text-slate-400">
+                          Carregando custos fixos...
+                        </td>
+                      </tr>
+                    ) : filteredFixedCosts.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="p-8 text-center text-slate-400 dark:text-slate-500">
+                          Nenhum custo fixo vigente encontrado para {selectedMonth}.
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredFixedCosts.map((cost) => (
+                        <tr key={cost.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition">
+                          <td className="p-4 pl-6 font-bold text-slate-900 dark:text-white">{cost.description}</td>
+                          <td className="p-4 text-slate-500 dark:text-slate-400">{cost.category || 'Geral'}</td>
+                          <td className="p-4 whitespace-nowrap font-medium text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
+                            <CalendarIcon className="w-3.5 h-3.5 text-orange-500" /> Todo dia {cost.due_day || 10}
+                          </td>
+                          <td className="p-4 whitespace-nowrap">
+                            <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 flex items-center gap-1 w-max">
+                              <CreditCard className="w-3 h-3 text-slate-400" /> {cost.payment_method || 'Boleto / Pix'}
+                            </span>
+                          </td>
+                          <td className="p-4 text-slate-400 text-[11px] font-medium whitespace-nowrap">
+                            {cost.created_at ? formatDateDisplay(cost.created_at.substring(0, 10)) : 'Início'}
+                          </td>
+                          <td className="p-4 font-extrabold text-rose-600 dark:text-rose-400 whitespace-nowrap">{formatCurrency(cost.amount)}</td>
+                          <td className="p-4 pr-6 text-center whitespace-nowrap flex items-center justify-center gap-1.5">
+                            <button 
+                              onClick={() => handlePayFixedCostNow(cost)}
+                              title={`Lançar como despesa no caixa de ${selectedMonth}`}
+                              className="text-slate-400 hover:text-emerald-500 transition p-2 rounded-xl hover:bg-emerald-500/10 inline-flex items-center justify-center cursor-pointer"
+                            >
+                              <Check className="w-4 h-4" />
+                            </button>
+                            <button 
+                              onClick={() => handleDeleteFixedCost(cost.id)}
+                              title="Excluir Custo Fixo"
+                              className="text-slate-400 hover:text-rose-500 transition p-2 rounded-xl hover:bg-rose-500/10 inline-flex items-center justify-center cursor-pointer"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ABA DRE & RELATÓRIOS GERENCIAIS */}
+      {activeTab === 'dre' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          
+          {/* TABELA DE DEMONSTRATIVO DRE */}
+          <div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm p-6 space-y-6">
+            <div>
+              <h2 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                <BarChart3 className="w-5 h-5 text-orange-500" /> DRE Gerencial Consolidado
+              </h2>
+              <span className="text-xs text-slate-400">Demonstrativo de Resultado do Exercício para {selectedMonth}</span>
+            </div>
+
+            <div className="space-y-3 font-semibold text-xs text-slate-700 dark:text-slate-300">
+              {/* FATURAMENTO BRUTO */}
+              <div className="flex justify-between items-center p-3 rounded-2xl bg-slate-50 dark:bg-slate-950 font-black text-sm">
+                <span className="text-slate-900 dark:text-white">1. Receita Bruta de Faturamento</span>
+                <span className="text-emerald-500 font-mono">{formatCurrency(totalReceitas)}</span>
+              </div>
+
+              {/* DEDUCOES */}
+              <div className="space-y-1.5 pl-4">
+                <div className="flex justify-between">
+                  <span>(-) Impostos Estimados (Simples Nacional • 6%)</span>
+                  <span className="text-rose-500">-{formatCurrency(totalReceitas * 0.06)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>(-) Taxas de Gateway / Maquininha (Est. 2.5%)</span>
+                  <span className="text-rose-500">-{formatCurrency(totalReceitas * 0.025)}</span>
+                </div>
+              </div>
+
+              {/* RECEITA LIQUIDA */}
+              <div className="flex justify-between items-center p-3 rounded-2xl bg-slate-100/50 dark:bg-slate-800/50 font-black text-xs">
+                <span className="text-slate-900 dark:text-white">2. Receita Líquida do Mês</span>
+                <span className="text-emerald-500 font-mono">{formatCurrency(totalReceitas * 0.915)}</span>
+              </div>
+
+              {/* CUSTOS VARIAVEIS */}
+              <div className="space-y-1.5 pl-4 pt-1">
+                <span className="text-[10px] uppercase font-bold text-slate-400">(-) Custos Variáveis de Produção</span>
+                <div className="flex justify-between">
+                  <span>Despesas Operacionais & Variáveis Registradas</span>
+                  <span className="text-rose-500">-{formatCurrency(totalDespesas)}</span>
+                </div>
+              </div>
+
+              {/* MARGEM DE CONTRIBUICAO */}
+              <div className="flex justify-between items-center p-3 rounded-2xl bg-slate-100/50 dark:bg-slate-800/50 font-black text-xs">
+                <span className="text-slate-900 dark:text-white">3. Margem de Contribuição Bruta</span>
+                <span className="font-mono text-cyan-500">{formatCurrency(totalReceitas * 0.915 - totalDespesas)}</span>
+              </div>
+
+              {/* CUSTOS FIXOS */}
+              <div className="space-y-1.5 pl-4 pt-1">
+                <span className="text-[10px] uppercase font-bold text-slate-400">(-) Despesas Fixas e Infraestrutura</span>
+                <div className="flex justify-between">
+                  <span>Soma dos Custos Fixos Mensais</span>
+                  <span className="text-rose-500">-{formatCurrency(totalFixedCosts)}</span>
+                </div>
+              </div>
+
+              {/* RESULTADO LIQUIDO */}
+              <div className="flex justify-between items-center p-4 rounded-2xl bg-slate-900 text-white dark:bg-[#0c111e] font-black text-sm border border-slate-800">
+                <span className="flex items-center gap-2">
+                  <Percent className="w-5 h-5 text-orange-500" /> (=) Resultado Líquido (Lucro ou Prejuízo)
+                </span>
+                <span className={`font-mono text-lg ${balancoLiquido >= 0 ? 'text-emerald-400' : 'text-rose-500'}`}>
+                  {formatCurrency(balancoLiquido)}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* FORMULÁRIO DE METAS / PLANEJAMENTO FINANCEIRO */}
+          <div className="space-y-6">
+            <form onSubmit={handleSaveBudget} className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+              <div>
+                <h2 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                  <Target className="w-5 h-5 text-orange-500" /> Planejamento de Metas
+                </h2>
+                <span className="text-[11px] text-slate-400">Defina os objetivos para {selectedMonth}</span>
+              </div>
+
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Meta de Faturamento Bruto (R$)</label>
+                  <input
+                    type="number"
+                    value={targetRevenue || ''}
+                    onChange={(e) => setTargetRevenue(Number(e.target.value))}
+                    placeholder="12000.00"
+                    className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-3 text-xs text-slate-900 dark:text-white outline-none focus:border-orange-500 font-bold"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Limite Despesas Variáveis (R$)</label>
+                  <input
+                    type="number"
+                    value={targetExpense || ''}
+                    onChange={(e) => setTargetExpense(Number(e.target.value))}
+                    placeholder="3000.00"
+                    className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-3 text-xs text-slate-900 dark:text-white outline-none focus:border-orange-500 font-bold"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Limite Custos Fixos (R$)</label>
+                  <input
+                    type="number"
+                    value={targetFixedCost || ''}
+                    onChange={(e) => setTargetFixedCost(Number(e.target.value))}
+                    placeholder="1500.00"
+                    className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-3 text-xs text-slate-900 dark:text-white outline-none focus:border-orange-500 font-bold"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={loadingBudget}
+                className="w-full py-3 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold transition shadow-sm disabled:opacity-50 flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <PlusCircle className="w-4 h-4" /> {loadingBudget ? 'Salvando...' : 'Atualizar Metas do Mês'}
+              </button>
+            </form>
+
+            {/* GRÁFICOS OPERACIONAIS DE METAS */}
+            {targetRevenue > 0 && (
+              <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+                <h3 className="text-xs font-black uppercase tracking-wider text-slate-400">Progresso de Metas</h3>
+                
+                {/* Meta 1: Faturamento */}
+                <div className="space-y-1.5">
+                  <div className="flex justify-between text-[11px] font-bold">
+                    <span className="text-slate-500">Faturamento</span>
+                    <span className="text-slate-900 dark:text-white">
+                      {totalReceitas.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} /{' '}
+                      {targetRevenue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                    </span>
+                  </div>
+                  <div className="w-full bg-slate-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden p-0.5 border border-slate-200/50 dark:border-slate-700/50">
+                    <div 
+                      className="bg-emerald-500 h-full rounded-full transition-all"
+                      style={{ width: `${Math.min(100, (totalReceitas / targetRevenue) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+
+                {/* Meta 2: Despesas */}
+                <div className="space-y-1.5">
+                  <div className="flex justify-between text-[11px] font-bold">
+                    <span className="text-slate-500">Despesas Operacionais</span>
+                    <span className="text-slate-900 dark:text-white">
+                      {totalDespesas.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} /{' '}
+                      {targetExpense.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                    </span>
+                  </div>
+                  <div className="w-full bg-slate-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden p-0.5 border border-slate-200/50 dark:border-slate-700/50">
+                    <div 
+                      className={`h-full rounded-full transition-all ${totalDespesas > targetExpense ? 'bg-rose-500' : 'bg-orange-500'}`}
+                      style={{ width: `${Math.min(100, (totalDespesas / targetExpense) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ABA DE CONTAS BANCÁRIAS */}
+      {activeTab === 'contas' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          
+          {/* PAINEL DE CONTAS CADASTRADAS */}
+          <div className="lg:col-span-2 space-y-6">
+            
+            {/* SALDO CONSOLIDADO */}
+            <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+              <div>
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1">Saldo Consolidado Global</span>
+                <h3 className="text-3xl font-black text-emerald-500">
+                  {formatCurrency(bankAccounts.reduce((acc, account) => acc + Number(account.balance || 0), 0))}
+                </h3>
+              </div>
+              <span className="px-4 py-2 rounded-2xl bg-slate-50 dark:bg-slate-800 text-[10px] font-black uppercase text-slate-500 dark:text-slate-400 border border-slate-100 dark:border-slate-700">
+                {bankAccounts.length} CONTAS ATIVAS
+              </span>
+            </div>
+
+            {/* LISTAGEM DE CONTAS */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {bankAccounts.length === 0 ? (
+                <div className="col-span-full bg-white dark:bg-slate-900 p-12 text-center rounded-3xl border border-slate-200 dark:border-slate-800 text-slate-400 dark:text-slate-500 font-bold">
+                  Nenhuma conta bancária cadastrada ainda. Utilize o formulário para adicionar!
+                </div>
+              ) : (
+                bankAccounts.map((account) => (
+                  <div key={account.id} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 relative overflow-hidden flex flex-col justify-between hover:border-orange-500/40 transition">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <span className="text-[9px] font-black uppercase text-orange-500 px-2.5 py-1 bg-orange-500/10 rounded-full border border-orange-500/20">
+                          {account.type || 'Corrente'}
+                        </span>
+                        <h4 className="text-sm font-extrabold text-slate-900 dark:text-white mt-3">{account.name}</h4>
+                        <span className="text-xs text-slate-400 font-semibold">{account.bank_name || 'Banco Geral'}</span>
+                      </div>
+                      <button
+                        onClick={() => handleDeleteBankAccount(account.id)}
+                        className="text-slate-400 hover:text-rose-500 transition p-2 rounded-xl hover:bg-rose-500/10 inline-flex items-center justify-center cursor-pointer"
+                        title="Remover Conta"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <div className="mt-6 pt-4 border-t border-slate-100 dark:border-slate-800/80 flex justify-between items-end">
+                      <span className="text-[10px] text-slate-400 font-bold uppercase">Saldo Atual</span>
+                      <span className="text-xl font-black text-emerald-500 font-mono">{formatCurrency(account.balance || 0)}</span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* FORMULÁRIO DE CADASTRO DE CONTA BANCÁRIA */}
+          <div>
+            <form onSubmit={handleAddBankAccount} className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+              <div>
+                <h2 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                  <CreditCard className="w-5 h-5 text-orange-500" /> Nova Conta / Carteira
+                </h2>
+                <span className="text-xs text-slate-400">Cadastre um canal de conciliação financeira</span>
+              </div>
+
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Nome Identificador</label>
+                  <input
+                    type="text"
+                    required
+                    value={accountNameInput}
+                    onChange={(e) => setAccountNameInput(e.target.value)}
+                    placeholder="Ex: Nubank da Oficina / Caixa Físico"
+                    className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 text-xs text-slate-900 dark:text-white outline-none focus:border-orange-500 font-semibold"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Nome do Banco / Instituição</label>
+                  <input
+                    type="text"
+                    value={bankNameInput}
+                    onChange={(e) => setBankNameInput(e.target.value)}
+                    placeholder="Ex: Banco Nu S.A. / Dinheiro em Espécie"
+                    className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 text-xs text-slate-900 dark:text-white outline-none focus:border-orange-500 font-semibold"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Tipo de Conta</label>
+                  <select
+                    value={accountTypeInput}
+                    onChange={(e) => setAccountTypeInput(e.target.value)}
+                    className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 text-xs text-slate-900 dark:text-white outline-none focus:border-orange-500 font-semibold"
+                  >
+                    <option value="Corrente">Conta Corrente</option>
+                    <option value="Poupança">Conta Poupança</option>
+                    <option value="Caixa Físico">Caixa Físico / Espécie</option>
+                    <option value="Aplicação">Investimento / Aplicação</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Saldo Inicial (R$)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={initialBalanceInput || ''}
+                    onChange={(e) => setInitialBalanceInput(Number(e.target.value))}
+                    placeholder="0.00"
+                    className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 text-xs text-slate-900 dark:text-white outline-none focus:border-orange-500 font-bold"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={loadingAddAccount}
+                className="w-full py-3 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold transition shadow-sm disabled:opacity-50 flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <PlusCircle className="w-4 h-4" /> {loadingAddAccount ? 'Salvando...' : 'Adicionar Conta / Carteira'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* MODAL DE DETALHES DO PEDIDO / VENDA */}
       <AnimatePresence>
@@ -1559,6 +2632,33 @@ export default function FinanceiroPage() {
         )}
       </AnimatePresence>
 
+      <ConfirmModal
+        isOpen={confirmModal.isOpen}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        onConfirm={confirmModal.onConfirm}
+        onCancel={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+      />
+
+      <AlertModal
+        isOpen={alertModal.isOpen}
+        title={alertModal.title}
+        message={alertModal.message}
+        type={alertModal.type}
+        onClose={() => setAlertModal(prev => ({ ...prev, isOpen: false }))}
+      />
     </motion.div>
+  )
+}
+
+export default function FinanceiroPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center min-h-[400px] text-slate-400 font-bold text-xs">
+        Carregando Módulo Financeiro...
+      </div>
+    }>
+      <FinanceiroPageContent />
+    </Suspense>
   )
 }

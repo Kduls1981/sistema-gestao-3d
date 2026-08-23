@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabaseClient'
+import ConfirmModal from '@/app/components/ConfirmModal'
+import AlertModal from '@/app/components/AlertModal'
 
 export default function VendasPage() {
   const [cliente, setCliente] = useState('')
@@ -17,6 +19,21 @@ export default function VendasPage() {
   const [salvandoVenda, setSalvandoVenda] = useState(false)
 
   const [vendasRecentes, setVendasRecentes] = useState<any[]>([])
+
+  // Estados para novas modais customizadas
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {}
+  })
+  
+  const [alertModal, setAlertModal] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    type: 'info' as 'success' | 'error' | 'info'
+  })
 
   useEffect(() => {
     fetchProdutos()
@@ -74,20 +91,36 @@ export default function VendasPage() {
     }
   }
 
-  const handleDeletarVenda = async (id: number, numeroPedido: string) => {
-    if (!confirm(`Tem certeza que deseja apagar o registro da venda ${numeroPedido}?`)) return
-
-    try {
-      await supabase.from('sales').delete().eq('id', id)
-      if (numeroPedido) {
-        await supabase.from('financial_transactions').delete().ilike('description', `%${numeroPedido}%`)
+  const handleDeletarVenda = (id: number, numeroPedido: string) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Excluir Venda',
+      message: `Tem certeza que deseja apagar o registro da venda ${numeroPedido}?`,
+      onConfirm: async () => {
+        try {
+          await supabase.from('sales').delete().eq('id', id)
+          if (numeroPedido) {
+            await supabase.from('financial_transactions').delete().ilike('description', `%${numeroPedido}%`)
+          }
+          setAlertModal({
+            isOpen: true,
+            title: 'Venda Removida',
+            message: `Venda ${numeroPedido} removida com sucesso!`,
+            type: 'success'
+          })
+        } catch (err: any) {
+          console.warn('Erro ao deletar do Supabase:', err)
+          setAlertModal({
+            isOpen: true,
+            title: 'Erro ao Deletar',
+            message: `Erro ao deletar do Supabase: ${err.message || err}`,
+            type: 'error'
+          })
+        } finally {
+          setVendasRecentes(prev => prev.filter(v => v.id !== id))
+        }
       }
-    } catch (err) {
-      console.warn('Erro ao deletar do Supabase:', err)
-    } finally {
-      setVendasRecentes(prev => prev.filter(v => v.id !== id))
-      alert(`Venda ${numeroPedido} removida!`)
-    }
+    })
   }
 
   const produtoAtual = produtosCatalogo.find((p) => String(p.id) === produtoId)
@@ -267,10 +300,20 @@ export default function VendasPage() {
       setDescontoPercentual(0)
 
       await fetchProdutos()
-      alert(`Pedido ${numeroPedidoGerado} finalizado com sucesso!`)
+      setAlertModal({
+        isOpen: true,
+        title: 'Pedido Finalizado',
+        message: `Pedido ${numeroPedidoGerado} finalizado com sucesso!`,
+        type: 'success'
+      })
 
     } catch (err: any) {
-      alert(`Erro ao finalizar pedido: ${err.message || err}`)
+      setAlertModal({
+        isOpen: true,
+        title: 'Erro ao Finalizar',
+        message: `Erro ao finalizar pedido: ${err.message || err}`,
+        type: 'error'
+      })
     } finally {
       setSalvandoVenda(false)
     }
@@ -565,6 +608,22 @@ export default function VendasPage() {
           </table>
         </div>
       </div>
+
+      <ConfirmModal
+        isOpen={confirmModal.isOpen}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        onConfirm={confirmModal.onConfirm}
+        onCancel={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+      />
+
+      <AlertModal
+        isOpen={alertModal.isOpen}
+        title={alertModal.title}
+        message={alertModal.message}
+        type={alertModal.type}
+        onClose={() => setAlertModal(prev => ({ ...prev, isOpen: false }))}
+      />
     </div>
   )
 }

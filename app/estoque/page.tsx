@@ -4,6 +4,8 @@ import { useState, useEffect, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
 import Link from 'next/link'
+import ConfirmModal from '@/app/components/ConfirmModal'
+import AlertModal from '@/app/components/AlertModal'
 
 type InputItem = {
   id: string
@@ -60,6 +62,21 @@ function EstoqueContent() {
   const [editingMaterialId, setEditingMaterialId] = useState<string | null>(null)
   const [newMaterialType, setNewMaterialType] = useState('')
 
+  // Estados para novas modais customizadas
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {}
+  })
+  
+  const [alertModal, setAlertModal] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    type: 'info' as 'success' | 'error' | 'info'
+  })
+
   const fetchInputs = async () => {
     try {
       setFetching(true)
@@ -105,20 +122,54 @@ function EstoqueContent() {
 
       const calculatedTotalCost = totalCost > 0 ? totalCost : (finalPricePerKg * stockQuantityG) / 1000
 
-      const { error } = await supabase.from('inputs').insert([
-        { 
-          name, 
-          type: type.toUpperCase(), 
-          brand,
-          price_per_kg: finalPricePerKg, 
-          cost_per_gram: costPerGram,
-          stock_quantity_g: stockQuantityG,
-          total_cost: calculatedTotalCost,
-          purchase_date: purchaseDate || null
-        }
-      ])
+      // Buscar se já existe um insumo com o mesmo Nome/Cor e Tipo no banco de dados
+      const { data: matchedInputs, error: searchError } = await supabase
+        .from('inputs')
+        .select('*')
+        .ilike('name', name)
+        .ilike('type', type)
 
-      if (error) throw error
+      if (searchError) throw searchError
+
+      // Filtrar por marca/fornecedor considerando nulos e vazios
+      const existingItem = matchedInputs?.find(item => 
+        (item.brand || '').toLowerCase().trim() === (brand || '').toLowerCase().trim()
+      )
+
+      if (existingItem) {
+        // Se o insumo já existe, atualizamos o estoque, custos e data da última compra
+        const newStockQty = (existingItem.stock_quantity_g || 0) + stockQuantityG
+        const newTotalCost = (existingItem.total_cost || 0) + calculatedTotalCost
+
+        const { error: updateError } = await supabase
+          .from('inputs')
+          .update({
+            price_per_kg: finalPricePerKg,
+            cost_per_gram: costPerGram,
+            stock_quantity_g: newStockQty,
+            total_cost: newTotalCost,
+            purchase_date: purchaseDate || null
+          })
+          .eq('id', existingItem.id)
+
+        if (updateError) throw updateError
+      } else {
+        // Se não existe, inserimos um novo registro
+        const { error: insertError } = await supabase.from('inputs').insert([
+          { 
+            name, 
+            type: type.toUpperCase(), 
+            brand,
+            price_per_kg: finalPricePerKg, 
+            cost_per_gram: costPerGram,
+            stock_quantity_g: stockQuantityG,
+            total_cost: calculatedTotalCost,
+            purchase_date: purchaseDate || null
+          }
+        ])
+
+        if (insertError) throw insertError
+      }
 
       // Lançamento financeiro automático da despesa
       const todayString = new Date().toISOString().substring(0, 10)
@@ -150,24 +201,40 @@ function EstoqueContent() {
         router.push('/estoque')
       }, 1500)
     } catch (error: any) {
-      alert('Erro ao cadastrar insumo: ' + error.message)
+      setAlertModal({
+        isOpen: true,
+        title: 'Erro',
+        message: 'Erro ao cadastrar insumo: ' + error.message,
+        type: 'error'
+      })
     } finally {
       setLoading(false)
     }
   }
 
   // Função para Excluir Material/Insumo
-  const handleDeleteInput = async (id: string) => {
-    if (!confirm('Deseja realmente excluir este material?')) return
-    try {
-      const { error } = await supabase.from('inputs').delete().eq('id', id)
-      if (error) throw error
-      setSucessoMsg('Material excluído com sucesso!')
-      fetchInputs()
-      setTimeout(() => setSucessoMsg(''), 1500)
-    } catch (error: any) {
-      alert('Erro ao excluir: ' + error.message)
-    }
+  const handleDeleteInput = (id: string) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Excluir Material',
+      message: 'Deseja realmente excluir este material?',
+      onConfirm: async () => {
+        try {
+          const { error } = await supabase.from('inputs').delete().eq('id', id)
+          if (error) throw error
+          setSucessoMsg('Material excluído com sucesso!')
+          fetchInputs()
+          setTimeout(() => setSucessoMsg(''), 1500)
+        } catch (error: any) {
+          setAlertModal({
+            isOpen: true,
+            title: 'Erro ao Excluir',
+            message: 'Erro ao excluir: ' + error.message,
+            type: 'error'
+          })
+        }
+      }
+    })
   }
 
   const registeredTypes = Array.from(
@@ -308,7 +375,12 @@ function EstoqueContent() {
                   fetchInputs();
                   setTimeout(() => setSucessoMsg(''), 1500);
                 } catch (err: any) {
-                  alert('Erro ao salvar: ' + err.message);
+                  setAlertModal({
+                    isOpen: true,
+                    title: 'Erro ao Salvar',
+                    message: 'Erro ao salvar: ' + err.message,
+                    type: 'error'
+                  })
                 }
               }} className="space-y-4 bg-slate-50 dark:bg-slate-950 p-4 rounded-2xl border border-slate-200 dark:border-slate-800">
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-400">
@@ -697,6 +769,21 @@ function EstoqueContent() {
         </div>
       )}
 
+      <ConfirmModal
+        isOpen={confirmModal.isOpen}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        onConfirm={confirmModal.onConfirm}
+        onCancel={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+      />
+
+      <AlertModal
+        isOpen={alertModal.isOpen}
+        title={alertModal.title}
+        message={alertModal.message}
+        type={alertModal.type}
+        onClose={() => setAlertModal(prev => ({ ...prev, isOpen: false }))}
+      />
     </div>
   )
 }

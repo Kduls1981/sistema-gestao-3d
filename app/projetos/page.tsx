@@ -3,6 +3,8 @@
 import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import Link from 'next/link'
+import ConfirmModal from '@/app/components/ConfirmModal'
+import AlertModal from '@/app/components/AlertModal'
 import { formatCurrency } from '@/lib/formatters'
 
 type Product3D = {
@@ -33,6 +35,21 @@ export default function Produtos3DPage() {
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState('ALL')
+
+  // Estados para novas modais customizadas
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {}
+  })
+  
+  const [alertModal, setAlertModal] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    type: 'info' as 'success' | 'error' | 'info'
+  })
 
   // Estados para o Modal de Edição
   const [editingProduct, setEditingProduct] = useState<Product3D | null>(null)
@@ -97,16 +114,26 @@ export default function Produtos3DPage() {
     }
   }
 
-  async function handleDelete(id: string) {
-    if (!confirm('Tem certeza que deseja excluir este produto do catálogo?')) return
-
-    try {
-      const { error } = await supabase.from('products_3d').delete().eq('id', id)
-      if (error) throw error
-      setProducts(products.filter((p) => p.id !== id))
-    } catch (error: any) {
-      alert(`Erro ao excluir: ${error.message || error}`)
-    }
+  const handleDelete = (id: string) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Excluir Produto',
+      message: 'Tem certeza que deseja excluir este produto do catálogo?',
+      onConfirm: async () => {
+        try {
+          const { error } = await supabase.from('products_3d').delete().eq('id', id)
+          if (error) throw error
+          setProducts(products.filter((p) => p.id !== id))
+        } catch (error: any) {
+          setAlertModal({
+            isOpen: true,
+            title: 'Erro ao Excluir',
+            message: `Erro ao excluir: ${error.message || error}`,
+            type: 'error'
+          })
+        }
+      }
+    })
   }
 
   function handleOpenEdit(product: Product3D) {
@@ -148,7 +175,12 @@ export default function Produtos3DPage() {
       setIsModalOpen(false)
       setEditingProduct(null)
     } catch (error: any) {
-      alert(`Erro ao atualizar produto: ${error.message || error}`)
+      setAlertModal({
+        isOpen: true,
+        title: 'Erro ao Atualizar',
+        message: `Erro ao atualizar produto: ${error.message || error}`,
+        type: 'error'
+      })
     } finally {
       setSaving(false)
     }
@@ -196,7 +228,12 @@ export default function Produtos3DPage() {
       setNewCategoryMode('select')
       setCustomNewCategory('')
     } catch (error: any) {
-      alert(`Erro ao criar produto: ${error.message || error}`)
+      setAlertModal({
+        isOpen: true,
+        title: 'Erro ao Criar',
+        message: `Erro ao criar produto: ${error.message || error}`,
+        type: 'error'
+      })
     } finally {
       setCreating(false)
     }
@@ -678,6 +715,21 @@ export default function Produtos3DPage() {
         </div>
       )}
 
+      <ConfirmModal
+        isOpen={confirmModal.isOpen}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        onConfirm={confirmModal.onConfirm}
+        onCancel={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+      />
+
+      <AlertModal
+        isOpen={alertModal.isOpen}
+        title={alertModal.title}
+        message={alertModal.message}
+        type={alertModal.type}
+        onClose={() => setAlertModal(prev => ({ ...prev, isOpen: false }))}
+      />
     </div>
   )
 }
