@@ -24,14 +24,13 @@ type SupplierItem = {
   name: string
 }
 
-// Função auxiliar para formatação de moeda no padrão brasileiro (R$ 86,00)
 const formatCurrency = (value: number, decimals: number = 2) => {
   return new Intl.NumberFormat('pt-BR', {
     style: 'currency',
     currency: 'BRL',
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
-  }).format(value)
+  }).format(value || 0)
 }
 
 function EstoqueContent() {
@@ -55,14 +54,11 @@ function EstoqueContent() {
   const [fetching, setFetching] = useState(true)
   const [sucessoMsg, setSucessoMsg] = useState('')
 
-  // State para Busca
   const [searchTerm, setSearchTerm] = useState('')
 
-  // Estados para Edição / Cadastro de Tipos/Materiais no Popup
   const [editingMaterialId, setEditingMaterialId] = useState<string | null>(null)
   const [newMaterialType, setNewMaterialType] = useState('')
 
-  // Estados para novas modais customizadas
   const [confirmModal, setConfirmModal] = useState({
     isOpen: false,
     title: '',
@@ -117,12 +113,10 @@ function EstoqueContent() {
     setLoading(true)
     setSucessoMsg('')
     try {
-      const costPerGram = pricePerKg > 0 ? Number((pricePerKg / 1000).toFixed(4)) : (totalCost > 0 && stockQuantityG > 0 ? Number((totalCost / stockQuantityG).toFixed(4)) : 0)
-      const finalPricePerKg = pricePerKg > 0 ? pricePerKg : (stockQuantityG > 0 ? (totalCost / stockQuantityG) * 1000 : 0)
+      const calculatedPricePerKg = pricePerKg > 0 ? pricePerKg : (stockQuantityG > 0 ? (totalCost / stockQuantityG) * 1000 : 0)
+      const calculatedCostPerGram = calculatedPricePerKg > 0 ? Number((calculatedPricePerKg / 1000).toFixed(4)) : 0
+      const calculatedTotalCost = totalCost > 0 ? totalCost : (calculatedPricePerKg * stockQuantityG) / 1000
 
-      const calculatedTotalCost = totalCost > 0 ? totalCost : (finalPricePerKg * stockQuantityG) / 1000
-
-      // Buscar se já existe um insumo com o mesmo Nome/Cor e Tipo no banco de dados
       const { data: matchedInputs, error: searchError } = await supabase
         .from('inputs')
         .select('*')
@@ -131,21 +125,19 @@ function EstoqueContent() {
 
       if (searchError) throw searchError
 
-      // Filtrar por marca/fornecedor considerando nulos e vazios
       const existingItem = matchedInputs?.find(item => 
         (item.brand || '').toLowerCase().trim() === (brand || '').toLowerCase().trim()
       )
 
       if (existingItem) {
-        // Se o insumo já existe, atualizamos o estoque, custos e data da última compra
         const newStockQty = (existingItem.stock_quantity_g || 0) + stockQuantityG
         const newTotalCost = (existingItem.total_cost || 0) + calculatedTotalCost
 
         const { error: updateError } = await supabase
           .from('inputs')
           .update({
-            price_per_kg: finalPricePerKg,
-            cost_per_gram: costPerGram,
+            price_per_kg: calculatedPricePerKg,
+            cost_per_gram: calculatedCostPerGram,
             stock_quantity_g: newStockQty,
             total_cost: newTotalCost,
             purchase_date: purchaseDate || null
@@ -154,14 +146,13 @@ function EstoqueContent() {
 
         if (updateError) throw updateError
       } else {
-        // Se não existe, inserimos um novo registro
         const { error: insertError } = await supabase.from('inputs').insert([
           { 
             name, 
             type: type.toUpperCase(), 
             brand,
-            price_per_kg: finalPricePerKg, 
-            cost_per_gram: costPerGram,
+            price_per_kg: calculatedPricePerKg, 
+            cost_per_gram: calculatedCostPerGram,
             stock_quantity_g: stockQuantityG,
             total_cost: calculatedTotalCost,
             purchase_date: purchaseDate || null
@@ -171,7 +162,6 @@ function EstoqueContent() {
         if (insertError) throw insertError
       }
 
-      // Lançamento financeiro automático da despesa
       const todayString = new Date().toISOString().substring(0, 10)
       await supabase.from('financial_transactions').insert([
         {
@@ -212,7 +202,6 @@ function EstoqueContent() {
     }
   }
 
-  // Função para Excluir Material/Insumo
   const handleDeleteInput = (id: string) => {
     setConfirmModal({
       isOpen: true,
@@ -232,6 +221,8 @@ function EstoqueContent() {
             message: 'Erro ao excluir: ' + error.message,
             type: 'error'
           })
+        } finally {
+          setConfirmModal(prev => ({ ...prev, isOpen: false }))
         }
       }
     })
@@ -246,10 +237,9 @@ function EstoqueContent() {
     return t.includes('PLA') || t.includes('ABS') || t.includes('PETG') || t.includes('TPU') || t.includes('FLEX') || t.includes('ASA') || t.includes('FILAMENTO')
   })
 
-  // Filtragem Geral por Busca
   const filteredInputs = inputs.filter(item => {
     return (
-      item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (item.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (item.type && item.type.toLowerCase().includes(searchTerm.toLowerCase())) ||
       (item.brand && item.brand.toLowerCase().includes(searchTerm.toLowerCase()))
     )
@@ -257,7 +247,7 @@ function EstoqueContent() {
 
   const filteredFilamentos = filamentosList.filter(item => {
     return (
-      item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (item.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (item.type && item.type.toLowerCase().includes(searchTerm.toLowerCase())) ||
       (item.brand && item.brand.toLowerCase().includes(searchTerm.toLowerCase()))
     )
@@ -275,14 +265,12 @@ function EstoqueContent() {
 
   Object.keys(categoriesMap).forEach(cat => {
     const category = categoriesMap[cat]
-    const sum = category.items.reduce((total, item) => total + item.price_per_kg, 0)
-    category.avgPrice = sum / category.count
+    const sum = category.items.reduce((total, item) => total + (item.price_per_kg || 0), 0)
+    category.avgPrice = category.count > 0 ? sum / category.count : 0
   })
 
   return (
     <div className="space-y-6 max-w-[1600px] mx-auto w-full pb-10 px-4 sm:px-6 relative">
-      
-      {/* HEADER EXECUTIVO REFINADO */}
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm">
         <div>
           <div className="flex items-center gap-2 mb-2">
@@ -327,7 +315,6 @@ function EstoqueContent() {
         </div>
       )}
 
-      {/* POPUP MODAL: CADASTRO DE NOVO MATERIAL / GERENCIAMENTO */}
       {action === 'novo' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
           <div className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col">
@@ -468,7 +455,6 @@ function EstoqueContent() {
         </div>
       )}
 
-      {/* ABA: FILAMENTOS */}
       {tab === 'filamentos' && (
         <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden animate-in fade-in slide-in-from-top-4 duration-300">
           <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -530,7 +516,6 @@ function EstoqueContent() {
         </div>
       )}
 
-      {/* ABA: CATEGORIAS */}
       {tab === 'categorias' && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in slide-in-from-top-4 duration-300">
           {fetching ? (
@@ -566,11 +551,9 @@ function EstoqueContent() {
         </div>
       )}
 
-      {/* ABA PRINCIPAL: MATÉRIA-PRIMA */}
       {!action && !tab && (
         <div className="space-y-6 animate-in fade-in slide-in-from-top-4 duration-300">
           
-          {/* FORMULÁRIO DE CADASTRO COMPACTADO COM SUPORTE A ESTOQUE E VALOR TOTAL */}
           <form onSubmit={handleAddInput} className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
             <h2 className="text-base font-extrabold text-slate-900 dark:text-white mb-2 flex items-center gap-2">
               <span>📦</span> Novo Cadastro de Insumo / Filamento (Entrada em Estoque)
@@ -679,7 +662,6 @@ function EstoqueContent() {
             </div>
           </form>
 
-          {/* TABELA DE LISTAGEM */}
           <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
             <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
               <h2 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">

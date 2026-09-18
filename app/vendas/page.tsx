@@ -20,7 +20,6 @@ export default function VendasPage() {
 
   const [vendasRecentes, setVendasRecentes] = useState<any[]>([])
 
-  // Estados para novas modais customizadas
   const [confirmModal, setConfirmModal] = useState({
     isOpen: false,
     title: '',
@@ -38,17 +37,68 @@ export default function VendasPage() {
   useEffect(() => {
     fetchProdutos()
     fetchSales()
+
+    // Inscreve realtime nas tabelas de orders e sales
+    const channelOrders = supabase
+      .channel('realtime_orders_changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'orders' },
+        () => {
+          fetchSales()
+        }
+      )
+      .subscribe()
+
+    const channelSales = supabase
+      .channel('realtime_sales_changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'sales' },
+        () => {
+          fetchSales()
+        }
+      )
+      .subscribe()
+
+    const channelProducts = supabase
+      .channel('realtime_products_changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'products_3d' },
+        () => {
+          fetchProdutos()
+          fetchSales()
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channelOrders)
+      supabase.removeChannel(channelSales)
+      supabase.removeChannel(channelProducts)
+    }
   }, [])
 
   async function fetchSales() {
     try {
-      const { data, error } = await supabase
-        .from('sales')
+      // Prioriza a busca na tabela "orders", fallback para "sales" se necessário
+      let { data, error } = await supabase
+        .from('orders')
         .select('*')
         .order('id', { ascending: false })
 
+      if (error || !data) {
+        const salesRes = await supabase
+          .from('sales')
+          .select('*')
+          .order('id', { ascending: false })
+        data = salesRes.data
+        error = salesRes.error
+      }
+
       if (error) {
-        console.warn('Tabela sales não encontrada ou sem permissão RLS. Mantendo estado atual.')
+        console.warn('Tabelas de vendas/pedidos não encontradas ou sem permissão RLS.')
         return
       }
 
@@ -56,18 +106,23 @@ export default function VendasPage() {
         const vendasMapeadas = data.map((v: any) => ({
           id: v.id,
           numeroPedido: v.numero_pedido || v.numeroPedido || `PED-${v.id}`,
-          cliente: v.cliente || '',
-          produto: v.produto || '',
-          qtd: Number(v.qtd) || 0,
-          total: Number(v.total) || 0,
-          pagamento: v.pagamento || '',
-          status: v.status || '',
+          cliente: v.cliente || v.customer_name || '',
+          produto: v.produto || (v.items && v.items.length > 0 ? v.items[0].nome || v.items[0].name : ''),
+          qtd: Number(v.qtd || v.total_quantity || 0),
+          total: Number(v.total || v.total_amount || 0),
+          pagamento: v.pagamento || v.payment_method || '',
+          status: v.status || v.status_destino || '',
           data: v.created_at ? new Date(v.created_at).toLocaleDateString('pt-BR') : (v.data || ''),
           hora: v.created_at ? new Date(v.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : (v.hora || ''),
-          emProducao: typeof v.em_producao === 'boolean' ? v.em_producao : (v.emProducao || false),
-          filaIniciada: typeof v.fila_iniciada === 'boolean' ? v.fila_iniciada : (v.filaIniciada || false)
+          emProducao: typeof v.em_producao === 'boolean' ? v.em_producao : (v.monitor_status !== '100% Concluído'),
+          filaIniciada: typeof v.fila_iniciada === 'boolean' ? v.fila_iniciada : (v.monitor_status === 'Em Produção'),
+          monitorStatus: v.monitor_status || '',
+          statusDestino: v.status_destino || '',
+          itens: v.itens || v.items || []
         }))
         setVendasRecentes(vendasMapeadas)
+      } else {
+        setVendasRecentes([])
       }
     } catch (err: any) {
       console.warn('Exceção ao buscar vendas:', err.message || err)
@@ -98,7 +153,10 @@ export default function VendasPage() {
       message: `Tem certeza que deseja apagar o registro da venda ${numeroPedido}?`,
       onConfirm: async () => {
         try {
+          // Tenta deletar tanto da tabela 'orders' quanto da 'sales'
+          await supabase.from('orders').delete().eq('id', id)
           await supabase.from('sales').delete().eq('id', id)
+
           if (numeroPedido) {
             await supabase.from('financial_transactions').delete().ilike('description', `%${numeroPedido}%`)
           }
@@ -117,6 +175,7 @@ export default function VendasPage() {
             type: 'error'
           })
         } finally {
+          setConfirmModal(prev => ({ ...prev, isOpen: false }))
           setVendasRecentes(prev => prev.filter(v => v.id !== id))
         }
       }
@@ -172,6 +231,8 @@ export default function VendasPage() {
     try {
       setSalvandoVenda(true)
       let temItensEmProducao = false
+      let totalQtdProducaoGeral = 0
+      let totalQtdProntaGeral = 0
 
       for (const item of itensPedido) {
         const prodOriginal = produtosCatalogo.find((p) => String(p.id) === String(item.produtoId))
@@ -181,6 +242,8 @@ export default function VendasPage() {
         const filaAtual = Number(prodOriginal.production_queue || 0)
 
         if (item.qtdIndoParaProducao > 0) temItensEmProducao = true
+        totalQtdProducaoGeral += item.qtdIndoParaProducao
+        totalQtdProntaGeral += item.qtdEstoqueUtilizada
 
         await supabase
           .from('products_3d')
@@ -206,70 +269,89 @@ export default function VendasPage() {
       const agora = new Date()
       const yyyymmdd = `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, '0')}-${String(agora.getDate()).padStart(2, '0')}`
 
-      // Tenta persistir no Supabase (tabela sales) primeiro para obter o id da venda
+      // Define os status compatíveis com a Produção
+      const monitorStatusCalculado = !temItensEmProducao ? '100% Concluído' : 'Aguardando Fila'
+      const statusDestinoCalculado = !temItensEmProducao 
+        ? 'Pronta Entrega' 
+        : `Parcial (${totalQtdProntaGeral} Pronta / ${totalQtdProducaoGeral} Prod)`
+
+      // Mapeamento compatível com o syncPendingOrdersWithNewStock da ProducaoPage
+      const itensFormatadosParaOrders = itensPedido.map(item => ({
+        id: item.produtoId,
+        product_id: item.produtoId,
+        nome: item.nomeProduto,
+        name: item.nomeProduto,
+        quantity: item.quantidade,
+        qty_ready: item.qtdEstoqueUtilizada || 0,
+        qty_in_production: item.qtdIndoParaProducao || 0
+      }))
+
       let saleId: any = null
-      
-      const salesResult = await supabase
-        .from('sales')
+
+      // 1. Grava diretamente na tabela 'orders' para manter compatibilidade total com o painel de produção
+      const ordersResult = await supabase
+        .from('orders')
         .insert([{
           numero_pedido: numeroPedidoGerado,
           cliente: cliente,
+          customer_name: cliente,
           produto: nomeProdutoHistorico,
           qtd: qtdTotalItens,
+          total_quantity: qtdTotalItens,
           total: valorTotalFinal,
+          total_amount: valorTotalFinal,
           pagamento: formaPagamento.toUpperCase(),
+          payment_method: formaPagamento.toUpperCase(),
           status: statusHistorico,
           em_producao: temItensEmProducao,
-          fila_iniciada: !temItensEmProducao,
-          itens: itensPedido.map(item => ({
-            nome: item.nomeProduto,
-            qtd: item.quantidade,
-            qtdEstoqueUtilizada: item.qtdEstoqueUtilizada || 0,
-            qtdIndoParaProducao: item.qtdIndoParaProducao || 0
-          }))
+          fila_iniciada: false,
+          monitor_status: monitorStatusCalculado,
+          status_destino: statusDestinoCalculado,
+          items: itensFormatadosParaOrders,
+          itens: itensFormatadosParaOrders
         }])
         .select()
 
-      if (salesResult.error) {
-        console.error('Erro na inserção do Supabase em sales:', salesResult.error)
-        throw new Error(`Erro ao salvar pedido no banco: ${salesResult.error.message}`)
+      if (ordersResult.error) {
+        // Fallback caso a tabela 'orders' não exista
+        console.warn('Tentando fallback para tabela sales:', ordersResult.error)
+        const salesResult = await supabase
+          .from('sales')
+          .insert([{
+            numero_pedido: numeroPedidoGerado,
+            cliente: cliente,
+            produto: nomeProdutoHistorico,
+            qtd: qtdTotalItens,
+            total: valorTotalFinal,
+            pagamento: formaPagamento.toUpperCase(),
+            status: statusHistorico,
+            em_producao: temItensEmProducao,
+            fila_iniciada: false,
+            itens: itensFormatadosParaOrders
+          }])
+          .select()
+
+        if (salesResult.error) {
+          throw new Error(`Erro ao salvar pedido no banco: ${salesResult.error.message}`)
+        } else {
+          saleId = salesResult?.data?.[0]?.id || null
+        }
       } else {
-        saleId = salesResult?.data?.[0]?.id || null
+        saleId = ordersResult?.data?.[0]?.id || null
       }
 
-      const novaVendaObjeto = {
-        id: saleId || Date.now(),
-        numeroPedido: numeroPedidoGerado,
-        cliente: cliente,
-        produto: nomeProdutoHistorico,
-        qtd: qtdTotalItens,
-        total: valorTotalFinal,
-        pagamento: formaPagamento.toUpperCase(),
-        status: statusHistorico,
-        emProducao: temItensEmProducao,
-        filaIniciada: !temItensEmProducao || false,
-        itens: itensPedido.map(item => ({
-          nome: item.nomeProduto,
-          qtd: item.quantidade,
-          qtdEstoqueUtilizada: item.qtdEstoqueUtilizada || 0,
-          qtdIndoParaProducao: item.qtdIndoParaProducao || 0
-        })),
-        data: agora.toLocaleDateString('pt-BR'),
-        hora: agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
-      }
-
-      // Calcula taxa de gateway estimada
+      // 2. Calcula taxas do meio de pagamento
       let gatewayFee = 0
       const formaPgLower = formaPagamento.toLowerCase()
       if (formaPgLower === 'cartao' || formaPgLower === 'cartão') {
-        gatewayFee = valorTotalFinal * 0.03 // 3%
+        gatewayFee = valorTotalFinal * 0.03
       } else if (formaPgLower === 'boleto') {
-        gatewayFee = 3.00 // R$3 fixo
+        gatewayFee = 3.00
       } else if (formaPgLower === 'pix') {
-        gatewayFee = valorTotalFinal * 0.005 // 0.5%
+        gatewayFee = valorTotalFinal * 0.005
       }
 
-      // Inserção no Financeiro com associação de sale_id, quantidade de itens e taxa de gateway
+      // 3. Lança transação financeira
       const financeResult = await supabase
         .from('financial_transactions')
         .insert([{
@@ -292,14 +374,13 @@ export default function VendasPage() {
         throw new Error(`Erro ao lançar transação financeira: ${financeResult.error.message}`)
       }
 
-      // Atualiza o estado da lista local
-      setVendasRecentes(prev => [novaVendaObjeto, ...prev])
-
       setCliente('')
       setItensPedido([])
       setDescontoPercentual(0)
 
       await fetchProdutos()
+      await fetchSales()
+
       setAlertModal({
         isOpen: true,
         title: 'Pedido Finalizado',
@@ -554,12 +635,24 @@ export default function VendasPage() {
                 </tr>
               ) : (
                 vendasRecentes.map((v) => {
+                  let precisaProducao = v.emProducao
+
+                  if (v.itens && Array.isArray(v.itens) && v.itens.length > 0) {
+                    precisaProducao = v.itens.some((it: any) => {
+                      const prodCat = produtosCatalogo.find((p) => String(p.id) === String(it.produtoId || it.id || it.product_id) || p.name === (it.nome || it.name))
+                      const estoqueAtual = prodCat ? Number(prodCat.stock_ready || 0) : 0
+                      const quantidadeFaltante = Number(it.qtdIndoParaProducao ?? it.qty_in_production ?? 0)
+                      return quantidadeFaltante > estoqueAtual
+                    })
+                  }
+
                   let dotColor = 'bg-emerald-500 shadow-emerald-500/50'
                   let labelStatus = '100% Concluído'
 
-                  if (v.emProducao) {
-                    dotColor = v.filaIniciada ? 'bg-amber-500 shadow-amber-500/50' : 'bg-rose-500 shadow-rose-500/50'
-                    labelStatus = v.filaIniciada ? 'Em Produção' : 'Aguardando Fila'
+                  if (precisaProducao || (v.monitorStatus && v.monitorStatus !== '100% Concluído')) {
+                    const statusAtual = v.monitorStatus || (v.filaIniciada ? 'Em Produção' : 'Aguardando Fila')
+                    dotColor = statusAtual === 'Em Produção' ? 'bg-amber-500 shadow-amber-500/50' : 'bg-rose-500 shadow-rose-500/50'
+                    labelStatus = statusAtual
                   }
 
                   return (
@@ -576,7 +669,7 @@ export default function VendasPage() {
                       <td className="py-4 px-4"><span className="text-xs bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-lg font-bold">{v.pagamento}</span></td>
                       <td className="py-4 px-4">
                         <span className="text-xs px-2.5 py-1 rounded-full font-bold bg-orange-500/10 text-orange-700 dark:text-orange-400 border border-orange-500/20">
-                          {v.status}
+                          {v.statusDestino || (precisaProducao ? (v.filaIniciada ? 'Em Produção' : 'Aguardando Produção') : 'Concluído (Pronta Entrega)')}
                         </span>
                       </td>
                       <td className="py-4 px-4 text-center">

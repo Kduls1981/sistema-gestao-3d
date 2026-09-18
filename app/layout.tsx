@@ -132,6 +132,7 @@ export default function RootLayout({
       label: 'Financeiro',
       items: [
         { name: 'Fluxo de Caixa', href: '/financeiro', desc: 'Receitas, saídas e movimentações', icon: BarChart3 },
+        { name: 'Projeção de Longo Prazo', href: '/financeiro/projecao', desc: 'Fluxo projetado (Conservador)', icon: TrendingUp },
         { name: 'Contas a Pagar/Receber', href: '/financeiro?tab=provisoes', desc: 'Vencimentos e provisões', icon: Calendar },
         { name: 'DRE & Relatórios', href: '/financeiro?tab=dre', desc: 'Análise de lucros e margens', icon: TrendingUp },
         { name: 'Contas Bancárias', href: '/financeiro?tab=contas', desc: 'Configurações de meios de pagamento', icon: CreditCard },

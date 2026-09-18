@@ -205,6 +205,26 @@ export default function Produtos3DPage() {
 
   useEffect(() => {
     fetchInitialData()
+
+    // Inscreve no Realtime do Supabase para atualizar a lista ao mudar estoque/produtos
+    const channel = supabase
+      .channel('realtime-products-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'products_3d',
+        },
+        () => {
+          fetchInitialData()
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
   }, [])
 
   async function fetchInitialData() {

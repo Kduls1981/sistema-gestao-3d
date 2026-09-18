@@ -32,18 +32,78 @@ export default function ProducaoPage() {
 
   useEffect(() => {
     fetchProductionData()
+
+    // Inscrição em tempo real para sincronização com novos pedidos
+    const channelOrders = supabase
+      .channel('realtime_orders_prod_page')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'orders' },
+        () => fetchProductionData()
+      )
+      .subscribe()
+
+    const channelProducts = supabase
+      .channel('realtime_products_prod_page')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'products_3d' },
+        () => fetchProductionData()
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channelOrders)
+      supabase.removeChannel(channelProducts)
+    }
   }, [])
 
   async function fetchProductionData() {
     try {
       setLoading(true)
-      const { data, error } = await supabase
+      
+      const { data: prodData, error: prodError } = await supabase
         .from('products_3d')
         .select('*')
         .order('name', { ascending: true })
 
-      if (error) throw error
-      if (data) setProducts(data)
+      if (prodError) throw prodError
+
+      // Busca os pedidos para sincronizar o acumulado da fila com base nos itens aguardando produção
+      const { data: ordersData } = await supabase
+        .from('orders')
+        .select('*')
+        .order('created_at', { ascending: true })
+
+      if (prodData) {
+        // Calcula a quantidade real pendente de produção cruzando com a tabela de pedidos
+        const produtosComFilaReal = prodData.map((p) => {
+          let filaAcumuladaPedidos = 0
+
+          if (ordersData) {
+            ordersData.forEach((ord: any) => {
+              if (ord.monitor_status !== '100% Concluído') {
+                const itens = ord.items || ord.itens || []
+                itens.forEach((it: any) => {
+                  const itName = it.nome || it.name || ''
+                  const itId = String(it.id || it.product_id || it.produtoId || '')
+
+                  if (itId === String(p.id) || itName.toLowerCase() === p.name.toLowerCase()) {
+                    filaAcumuladaPedidos += Number(it.qty_in_production ?? it.qtdIndoParaProducao ?? 0)
+                  }
+                })
+              }
+            })
+          }
+
+          return {
+            ...p,
+            production_queue: Math.max(p.production_queue || 0, filaAcumuladaPedidos)
+          }
+        })
+
+        setProducts(produtosComFilaReal)
+      }
     } catch (err) {
       console.error('Erro ao carregar dados de produção:', err)
     } finally {
@@ -92,6 +152,96 @@ export default function ProducaoPage() {
     }
   }
 
+  // Sincroniza e reduz gradualmente o pedido pendente por unidade produzida
+  async function syncPendingOrdersWithNewStock(productName: string, productId: string) {
+    try {
+      const { data: openOrders, error } = await supabase
+        .from('orders')
+        .select('*')
+        .order('created_at', { ascending: true })
+
+      if (error || !openOrders) return
+
+      let unidadesProduzidasRestantes = 1 // 1 unidade pronta por acionamento
+
+      for (const order of openOrders) {
+        if (
+          order.monitor_status === '100% Concluído' || 
+          order.status_destino === 'Pronta Entrega' ||
+          order.status_destino === 'Entregue'
+        ) {
+          continue
+        }
+
+        if (!order.items || !Array.isArray(order.items)) continue
+
+        let orderModificado = false
+
+        const updatedItems = order.items.map((item: any) => {
+          const itemName = item.nome || item.name || ''
+          const itemId = String(item.id || item.product_id || item.produtoId || '')
+
+          const matchName = itemName.toLowerCase() === productName.toLowerCase()
+          const matchId = itemId === String(productId)
+
+          if ((matchName || matchId) && unidadesProduzidasRestantes > 0) {
+            const currentInProd = Number(item.qty_in_production ?? item.qtdIndoParaProducao ?? 0)
+            const currentReady = Number(item.qty_ready ?? item.qtdEstoqueUtilizada ?? 0)
+
+            if (currentInProd > 0) {
+              const abate = Math.min(currentInProd, unidadesProduzidasRestantes)
+              unidadesProduzidasRestantes -= abate
+              orderModificado = true
+
+              const newInProd = currentInProd - abate
+              const newReady = currentReady + abate
+
+              return {
+                ...item,
+                qty_in_production: newInProd,
+                qtdIndoParaProducao: newInProd,
+                qty_ready: newReady,
+                qtdEstoqueUtilizada: newReady
+              }
+            }
+          }
+          return item
+        })
+
+        if (orderModificado) {
+          const totalInProdGeral = updatedItems.reduce((acc: number, it: any) => {
+            return acc + Number(it.qty_in_production ?? it.qtdIndoParaProducao ?? 0)
+          }, 0)
+
+          const totalReadyGeral = updatedItems.reduce((acc: number, it: any) => {
+            return acc + Number(it.qty_ready ?? it.qtdEstoqueUtilizada ?? 0)
+          }, 0)
+
+          const isComplete = totalInProdGeral === 0
+          const newMonitorStatus = isComplete ? '100% Concluído' : 'Em Produção'
+          const newStatusDestino = isComplete 
+            ? 'Concluído (Pronta Entrega)' 
+            : `Parcial (${totalReadyGeral} Pronta / ${totalInProdGeral} Prod)`
+
+          await supabase
+            .from('orders')
+            .update({
+              items: updatedItems,
+              itens: updatedItems,
+              em_producao: !isComplete,
+              monitor_status: newMonitorStatus,
+              status_destino: newStatusDestino
+            })
+            .eq('id', order.id)
+
+          if (unidadesProduzidasRestantes <= 0) break
+        }
+      }
+    } catch (err) {
+      console.error('Erro ao sincronizar pedidos pendentes com estoque:', err)
+    }
+  }
+
   // Finalizar Produção (Enviar p/ Estoque ou Registrar Falha)
   async function handleFinishProduction(prod: Product3D, success: boolean) {
     const currentQueue = prod.production_queue || 0
@@ -100,7 +250,7 @@ export default function ProducaoPage() {
     const newStock = success ? currentStock + 1 : currentStock
 
     try {
-      // 1. Atualizar o produto 3D (fila de produção e estoque pronto)
+      // 1. Atualizar o produto 3D
       const { error } = await supabase
         .from('products_3d')
         .update({
@@ -136,8 +286,10 @@ export default function ProducaoPage() {
         }
       }
 
-      // 3. Se for falha, registrar na tabela de desperdícios/falhas
-      if (!success) {
+      // 3. Sincronização ou registro de falha
+      if (success) {
+        await syncPendingOrdersWithNewStock(prod.name, prod.id)
+      } else {
         await supabase
           .from('production_failures')
           .insert([
@@ -148,12 +300,7 @@ export default function ProducaoPage() {
           ])
       }
 
-      setProducts(products.map(p => p.id === prod.id ? {
-        ...p,
-        production_queue: newQueue,
-        production_started_at: newQueue > 0 ? new Date().toISOString() : null,
-        stock_ready: newStock
-      } : p))
+      await fetchProductionData()
     } catch (err) {
       console.error('Erro ao finalizar item:', err)
     }
@@ -169,7 +316,7 @@ export default function ProducaoPage() {
   return (
     <div className="p-6 md:p-10 space-y-8 max-w-[1600px] mx-auto min-h-screen text-slate-800 dark:text-slate-100">
       
-      {/* Cabeçalho da Página */}
+      {/* Cabeçalho */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white">
@@ -245,7 +392,6 @@ export default function ProducaoPage() {
                   const printTimeHours = prod.print_time_hours || 0
                   const totalEstHours = (queue * printTimeHours).toFixed(1)
 
-                  // Cálculos de progresso do item em impressão
                   let isPrinting = false
                   let progressPercent = 0
                   let remainingFormatted = ''
@@ -266,17 +412,14 @@ export default function ProducaoPage() {
                   return (
                     <tr key={prod.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition">
                       
-                      {/* 1. Produto */}
                       <td className="p-4 pl-6 font-bold text-slate-900 dark:text-white">
                         {prod.name}
                       </td>
 
-                      {/* 2. Categoria */}
                       <td className="p-4 text-slate-500 dark:text-slate-400">
                         {prod.category || 'Geral'}
                       </td>
 
-                      {/* 3. Impressora */}
                       <td className="p-4 text-slate-700 dark:text-slate-300 font-medium">
                         {prod.assigned_printer ? (
                           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 dark:bg-slate-800 rounded-lg text-xs">
@@ -291,7 +434,6 @@ export default function ProducaoPage() {
                         )}
                       </td>
 
-                      {/* 4. Filamento */}
                       <td className="p-4 text-slate-600 dark:text-slate-400 text-xs">
                         {prod.filament_type ? (
                           <span className="px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded-md font-mono">
@@ -302,19 +444,16 @@ export default function ProducaoPage() {
                         )}
                       </td>
 
-                      {/* 5. Tempo Est. Peça */}
                       <td className="p-4 text-slate-600 dark:text-slate-400 font-medium">
                         {printTimeHours} h
                       </td>
 
-                      {/* 6. Estoque Pronto */}
                       <td className="p-4 text-center">
                         <span className="inline-block px-3 py-1 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded-full font-bold text-xs">
                           {prod.stock_ready || 0} un
                         </span>
                       </td>
 
-                      {/* 7. Fila de Produção */}
                       <td className="p-4 text-center">
                         <div className="inline-flex items-center gap-2 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
                           <button
@@ -337,12 +476,10 @@ export default function ProducaoPage() {
                         </div>
                       </td>
 
-                      {/* 8. Tempo Est. Total */}
                       <td className="p-4 text-indigo-600 dark:text-indigo-400 font-extrabold">
                         {totalEstHours} h
                       </td>
 
-                      {/* 9. Status & Controle de Fabricação */}
                       <td className="p-4 pr-6">
                         <div className="flex flex-col gap-2 min-w-[220px]">
                           {!isPrinting && queue > 0 && (
@@ -376,7 +513,7 @@ export default function ProducaoPage() {
                                 <button
                                   onClick={() => handleFinishProduction(prod, true)}
                                   className="flex-1 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition shadow-sm cursor-pointer text-center"
-                                  title="Envia a peça pronta para o estoque"
+                                  title="Envia a peça pronta para o estoque e atualiza os pedidos pendentes"
                                 >
                                   Enviar p/ Estoque
                                 </button>
